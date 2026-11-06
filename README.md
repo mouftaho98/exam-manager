@@ -10,7 +10,7 @@ ECE1779 Introduction to Cloud Computing, Fall 2026, University of Toronto.
 | Name | Student number | Email |
 |---|---|---|
 | Omar Mouftah | | |
-| Ahmed Afifi | | |
+| Ahmed Afifi | 1003139873 | ahmedmafifi1@gmail.com |
 | Mohammed Abdulmunem | | |
 
 ## Motivation
