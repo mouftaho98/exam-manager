@@ -102,11 +102,11 @@ The development timeline plan will be as follows:
 
 ### Team Responsibilities
 
-**Member 1 - Backend and Database:** Responsible for designing the PostgreSQL schema, implementing the APIs for roster management and setting assignments, and ensuring data correctness during check-in.
+**Omar Mouftah - Backend and Database:** Responsible for designing the PostgreSQL schema, implementing the APIs for roster management and setting assignments, and ensuring data correctness during check-in.
 
-**Member 2 - Frontend and Real-Time Features:** Responsible for developing the React interface for instructors, students and proctors, implementing QR code check-in and integrating Socket.IO and Redis for live attendance updates.
+**Ahmed Afifi - Frontend and Real-Time Features:** Responsible for developing the React interface for instructors, students and proctors, implementing QR code check-in and integrating Socket.IO and Redis for live attendance updates.
 
-**Member 3 - Cloud Infrastructure and Deployment:** Responsible for Docker configuration, kubernetes deployment on Digital Ocean, persistent storage, autoscaling, monitoring, and performance testing.
+**Mohammed Abdulmunem - Cloud Infrastructure and Deployment:** Responsible for Docker configuration, kubernetes deployment on Digital Ocean, persistent storage, autoscaling, monitoring, and performance testing.
 
 All team members will contribute to integration, testing and documentation.
 
