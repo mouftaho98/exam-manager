@@ -1,4 +1,7 @@
 # Local development: API + PostgreSQL + Redis
+#   cp .env.example .env
+#   docker compose up --build
+# API on http://localhost:3000 (liveness: /health, readiness: /ready)
 services:
   api:
     build: ./api
