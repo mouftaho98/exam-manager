@@ -4,9 +4,10 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../db.js";
 import { currentUser, requireAuth } from "../auth.js";
 import { INSTRUCTOR_ONLY, STAFF, requireCourseRole, requireExamRole } from "../access.js";
-import { badRequest, conflict, notFound } from "../errors.js";
-import { uniqueCheckinCodes } from "../codes.js";
+import { badRequest, conflict, HttpError, notFound } from "../errors.js";
+import { normalizeCheckinCode, uniqueCheckinCodes } from "../codes.js";
 import { assignSeats, seededRandom } from "../seating.js";
+import { publish } from "../realtime.js";
 import { memberName, seatDto, seatRows } from "../serializers.js";
 
 export const examsRouter = Router();
@@ -23,6 +24,13 @@ const examBody = z.object({
 const roomsBody = z.object({ roomIds: z.array(z.string().min(1)).max(50) });
 const generateBody = z.object({ seed: z.number().int().optional() }).default({});
 const moveBody = z.object({ seatId: z.string().min(1), swap: z.boolean().optional() });
+const checkinBody = z
+  .object({
+    roomId: z.string().min(1),
+    code: z.string().trim().min(1).max(20).optional(),
+    memberId: z.string().min(1).optional(),
+  })
+  .refine((b) => b.code || b.memberId, { message: "Send a check-in code or a memberId" });
 
 type Tx = Prisma.TransactionClient;
 
@@ -90,6 +98,9 @@ examsRouter.get("/exams/:examId", async (req, res) => {
       where: { examId_memberId: { examId: exam.id, memberId: member.id } },
       include: { seat: { include: { room: { include: { seats: true } } } } },
     });
+    const checkIn = await prisma.checkIn.findUnique({
+      where: { examId_memberId: { examId: exam.id, memberId: member.id } },
+    });
     res.json({
       exam: examDto(full),
       myRole: member.role,
@@ -105,14 +116,16 @@ examsRouter.get("/exams/:examId", async (req, res) => {
             },
           }
         : null,
+      checkedInAt: checkIn?.checkedInAt ?? null,
     });
     return;
   }
-  const [assigned, students] = await Promise.all([
+  const [assigned, checkedIn, students] = await Promise.all([
     prisma.seatAssignment.count({ where: { examId: exam.id } }),
+    prisma.checkIn.count({ where: { examId: exam.id } }),
     prisma.courseMember.count({ where: { courseId: exam.courseId, role: "STUDENT" } }),
   ]);
-  res.json({ exam: examDto(full), myRole: member.role, counts: { students, assigned } });
+  res.json({ exam: examDto(full), myRole: member.role, counts: { students, assigned, checkedIn } });
 });
 
 examsRouter.patch("/exams/:examId", async (req, res) => {
@@ -158,6 +171,7 @@ examsRouter.put("/exams/:examId/rooms", async (req, res) => {
 /**
  * Randomly seat every student in the course across the exam's rooms.
  * Replaces the current seating, but keeps each student's check-in code.
+ * Refused once check-in has started.
  */
 examsRouter.post("/exams/:examId/seating/generate", async (req, res) => {
   const { exam } = await requireExamRole(currentUser(req).id, req.params.examId, INSTRUCTOR_ONLY);
@@ -166,6 +180,9 @@ examsRouter.post("/exams/:examId/seating/generate", async (req, res) => {
 
   const result = await prisma.$transaction(
     async (tx) => {
+      if ((await tx.checkIn.count({ where: { examId: exam.id } })) > 0) {
+        throw conflict("checkin_started", "Check-in has started; move students individually instead");
+      }
       const roomIds = await examRoomIds(tx, exam.id);
       if (roomIds.length === 0) throw badRequest("Add at least one room to the exam first");
 
@@ -204,19 +221,22 @@ examsRouter.post("/exams/:examId/seating/generate", async (req, res) => {
     { isolationLevel: "Serializable", timeout: 30000 },
   );
 
+  publish(exam.id, "seating:generated", { assigned: result.assigned, unassigned: result.unassigned.length });
   res.json({ ...result, seed: usedSeed });
 });
 
-/** Full seating map for staff: every seat and who sits there. */
+/** Full seating map for staff: every seat, who sits there and whether they checked in. */
 examsRouter.get("/exams/:examId/seating", async (req, res) => {
   const { exam } = await requireExamRole(currentUser(req).id, req.params.examId, STAFF);
   const roomIds = await examRoomIds(prisma, exam.id);
-  const [rooms, assignments, students] = await Promise.all([
+  const [rooms, assignments, checkIns, students] = await Promise.all([
     prisma.room.findMany({ where: { id: { in: roomIds } }, include: { seats: true }, orderBy: { name: "asc" } }),
     prisma.seatAssignment.findMany({ where: { examId: exam.id }, include: { member: true } }),
+    prisma.checkIn.findMany({ where: { examId: exam.id } }),
     prisma.courseMember.findMany({ where: { courseId: exam.courseId, role: "STUDENT" } }),
   ]);
   const bySeat = new Map(assignments.map((a) => [a.seatId, a]));
+  const checkedIn = new Map(checkIns.map((c) => [c.memberId, c]));
   const seated = new Set(assignments.map((a) => a.memberId));
 
   res.json({
@@ -229,10 +249,11 @@ examsRouter.get("/exams/:examId/seating", async (req, res) => {
         row: r.row,
         seats: r.seats.map((seat) => {
           const a = bySeat.get(seat.id);
+          const c = a ? checkedIn.get(a.memberId) : undefined;
           return {
             ...seatDto(seat),
             student: a
-              ? { ...studentSummary(a.member), manual: a.manual }
+              ? { ...studentSummary(a.member), manual: a.manual, checkedInAt: c?.checkedInAt ?? null }
               : null,
           };
         }),
@@ -328,15 +349,141 @@ examsRouter.patch("/exams/:examId/assignments/:memberId", async (req, res) => {
     { isolationLevel: "Serializable" },
   );
 
+  if (moves.length > 0) publish(exam.id, "seat:moved", { moves });
   res.json({ moves });
 });
 
 examsRouter.delete("/exams/:examId/assignments/:memberId", async (req, res) => {
   const { exam } = await requireExamRole(currentUser(req).id, req.params.examId, STAFF);
-  await prisma.seatAssignment.deleteMany({
+  const removed = await prisma.seatAssignment.deleteMany({
     where: { examId: exam.id, memberId: req.params.memberId },
   });
+  if (removed.count > 0) {
+    publish(exam.id, "seat:moved", { moves: [{ memberId: req.params.memberId, seatId: null, roomId: null }] });
+  }
   res.status(204).end();
+});
+
+// ---------- Check-in ----------
+
+/**
+ * Check a student in (staff only), by the code from their QR code or by
+ * memberId. Safe to retry: the database allows one check-in per student per
+ * exam, so a repeated or simultaneous scan returns "already_checked_in"
+ * instead of creating a second record.
+ *
+ * roomId is the room the proctor is standing in. A student scanned in the
+ * wrong room is not checked in; the 409 response says where they should go.
+ */
+examsRouter.post("/exams/:examId/checkins", async (req, res) => {
+  const user = currentUser(req);
+  const { exam } = await requireExamRole(user.id, req.params.examId, STAFF);
+  const body = checkinBody.parse(req.body);
+
+  const examRoom = await prisma.examRoom.findUnique({
+    where: { examId_roomId: { examId: exam.id, roomId: body.roomId } },
+    include: { room: true },
+  });
+  if (!examRoom) throw badRequest("That room is not part of this exam");
+
+  const assignment = await prisma.seatAssignment.findFirst({
+    where: body.code
+      ? { examId: exam.id, checkinCode: normalizeCheckinCode(body.code) }
+      : { examId: exam.id, memberId: body.memberId },
+    include: { member: true, seat: { include: { room: true } } },
+  });
+  if (!assignment) {
+    if (body.code) throw new HttpError(404, "unknown_code", "No student in this exam has that check-in code");
+    throw conflict("no_seat", "This student has no seat in this exam");
+  }
+
+  const student = studentSummary(assignment.member);
+  const seat = seatDto(assignment.seat);
+  const assignedRoom = { id: assignment.seat.room.id, name: assignment.seat.room.name, building: assignment.seat.room.building };
+
+  if (assignment.roomId !== body.roomId) {
+    throw conflict("wrong_room", `${student.name} is seated in ${assignedRoom.name}, seat ${seat.label}`, {
+      student,
+      seat,
+      room: assignedRoom,
+    });
+  }
+
+  // INSERT ... ON CONFLICT DO NOTHING: exactly one of any number of concurrent requests creates the row.
+  const { count } = await prisma.checkIn.createMany({
+    data: [{ examId: exam.id, memberId: assignment.memberId, roomId: body.roomId, checkedInById: user.id }],
+    skipDuplicates: true,
+  });
+  const checkIn = await prisma.checkIn.findUniqueOrThrow({
+    where: { examId_memberId: { examId: exam.id, memberId: assignment.memberId } },
+  });
+  const status = count === 1 ? "checked_in" : "already_checked_in";
+
+  if (status === "checked_in") {
+    publish(exam.id, "checkin:created", {
+      memberId: assignment.memberId,
+      roomId: body.roomId,
+      seatId: assignment.seatId,
+      seatLabel: seat.label,
+      name: student.name,
+      checkedInAt: checkIn.checkedInAt,
+    });
+  }
+  res.status(status === "checked_in" ? 201 : 200).json({
+    status,
+    checkedInAt: checkIn.checkedInAt,
+    student,
+    seat,
+    room: assignedRoom,
+  });
+});
+
+// Undo a check-in made by mistake.
+examsRouter.delete("/exams/:examId/checkins/:memberId", async (req, res) => {
+  const { exam } = await requireExamRole(currentUser(req).id, req.params.examId, STAFF);
+  const existing = await prisma.checkIn.findUnique({
+    where: { examId_memberId: { examId: exam.id, memberId: req.params.memberId } },
+  });
+  if (existing) {
+    await prisma.checkIn.delete({ where: { id: existing.id } });
+    publish(exam.id, "checkin:removed", { memberId: existing.memberId, roomId: existing.roomId });
+  }
+  res.status(204).end();
+});
+
+/** Live attendance summary: per room counts, plus who is still missing. */
+examsRouter.get("/exams/:examId/attendance", async (req, res) => {
+  const { exam } = await requireExamRole(currentUser(req).id, req.params.examId, STAFF);
+  const roomIds = await examRoomIds(prisma, exam.id);
+  const [rooms, assignments, checkIns] = await Promise.all([
+    prisma.room.findMany({
+      where: { id: { in: roomIds } },
+      include: { _count: { select: { seats: { where: { broken: false } } } } },
+      orderBy: { name: "asc" },
+    }),
+    prisma.seatAssignment.findMany({ where: { examId: exam.id }, include: { member: true, seat: true } }),
+    prisma.checkIn.findMany({ where: { examId: exam.id } }),
+  ]);
+  const checkedIn = new Set(checkIns.map((c) => c.memberId));
+
+  res.json({
+    examId: exam.id,
+    totals: { assigned: assignments.length, checkedIn: checkIns.length, missing: assignments.length - checkIns.length },
+    rooms: rooms.map((room) => {
+      const here = assignments.filter((a) => a.roomId === room.id);
+      return {
+        id: room.id,
+        name: room.name,
+        building: room.building,
+        capacity: room._count.seats,
+        assigned: here.length,
+        checkedIn: here.filter((a) => checkedIn.has(a.memberId)).length,
+      };
+    }),
+    missing: assignments
+      .filter((a) => !checkedIn.has(a.memberId))
+      .map((a) => ({ ...studentSummary(a.member), roomId: a.roomId, seatLabel: a.seat.label })),
+  });
 });
 
 function examDto(exam: Prisma.ExamGetPayload<{ include: { rooms: { include: { room: true } } } }>) {

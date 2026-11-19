@@ -32,11 +32,13 @@ meRouter.get("/exams", async (req, res) => {
     include: {
       course: { include: { exams: { orderBy: { startsAt: "asc" } } } },
       assignments: { include: { seat: { include: { room: true } } } },
+      checkIns: true,
     },
   });
   const exams = memberships.flatMap((m) =>
     m.course.exams.map((exam) => {
       const a = m.assignments.find((x) => x.examId === exam.id);
+      const c = m.checkIns.find((x) => x.examId === exam.id);
       return {
         id: exam.id,
         title: exam.title,
@@ -46,6 +48,7 @@ meRouter.get("/exams", async (req, res) => {
         seat: a ? seatDto(a.seat) : null,
         room: a ? { id: a.seat.room.id, name: a.seat.room.name, building: a.seat.room.building } : null,
         checkinCode: a?.checkinCode ?? null,
+        checkedInAt: c?.checkedInAt ?? null,
       };
     }),
   );
