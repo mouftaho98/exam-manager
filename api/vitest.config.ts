@@ -12,6 +12,6 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 60000,
     globalSetup: ["test/global-setup.ts"],
-    env: { DATABASE_URL: testDatabaseUrl },
+    env: { DATABASE_URL: testDatabaseUrl, JWT_SECRET: "test-secret" },
   },
 });

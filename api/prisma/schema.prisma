@@ -1,4 +1,6 @@
-// RollCall database schema. Tables are added in later changes.
+// RollCall database schema.
+// Roles are per course: the same user can be an instructor in one course
+// and a student in another, so permissions live on CourseMember, not User.
 
 generator client {
   provider = "prisma-client-js"
@@ -7,4 +9,60 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+enum CourseRole {
+  INSTRUCTOR
+  PROCTOR
+  STUDENT
+}
+
+enum MemberStatus {
+  INVITED // on the roster / invited, has not accepted yet
+  ACTIVE // accepted the invite with their account
+}
+
+model User {
+  id           String         @id @default(cuid())
+  email        String         @unique // stored lowercase
+  name         String
+  passwordHash String
+  createdAt    DateTime       @default(now())
+  memberships  CourseMember[]
+}
+
+model Course {
+  id        String         @id @default(cuid())
+  code      String // e.g. ECE1779
+  name      String
+  term      String? // e.g. Fall 2026
+  createdAt DateTime       @default(now())
+  members   CourseMember[]
+}
+
+// A person's place in a course. Created by the instructor (roster upload or
+// invite) before the person has an account; userId is filled in when they
+// accept the invite.
+model CourseMember {
+  id              String           @id @default(cuid())
+  courseId        String
+  course          Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  userId          String?
+  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email           String // stored lowercase; the invite is sent here
+  role            CourseRole
+  status          MemberStatus     @default(INVITED)
+  inviteToken     String?          @unique
+  studentNumber   String?
+  firstName       String?
+  lastName        String?
+  needsAccessible Boolean          @default(false)
+  leftHanded      Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  joinedAt        DateTime?
+
+  @@unique([courseId, email])
+  @@unique([courseId, userId])
+  @@unique([courseId, studentNumber])
+  @@index([userId])
 }
