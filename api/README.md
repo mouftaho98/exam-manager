@@ -34,6 +34,7 @@ npm test
 ```
 
 Integration tests use `TEST_DATABASE_URL` (default `postgresql://exam:exam@localhost:55432/exam_manager_test`) and wipe it.
+`npm run test:unit` runs only the seating and CSV tests, which need no database.
 
 ## Environment
 
@@ -55,12 +56,15 @@ The container runs `prisma migrate deploy` before starting, so a new image appli
 ## Concepts
 
 - **Roles are per course.** A user can be `INSTRUCTOR`, `PROCTOR` or `STUDENT`, and the role can differ from course to course. Whoever creates a course is its instructor.
-- **Invites.** Uploading a roster or adding a member creates a `CourseMember` with an invite link. The person signs in or creates an account *with the invited email*, then accepts. Until then their status is `INVITED`.
+- **Invites.** Uploading a roster or adding a member creates a `CourseMember` with an invite link. The person signs in or creates an account *with the invited email*, then accepts. Until then their status is `INVITED`, but they still get a seat.
+- **Rooms** are shared between courses. Each row can have a different length, and gaps in `col` are aisles.
+- **Seating** places students who need an accessible seat first, then left-handed students, then everyone else at random. It keeps one empty seat between students while the room allows it, and never uses broken seats. Staff can move or swap students afterwards.
+- **Check-in codes.** Each student gets one 6-character code per exam; the QR code just encodes it. The code survives regenerating the seating and manual moves.
 
 ## Errors
 
 Every error looks like `{ "error": { "code": "...", "message": "...", "details": ... } }`.
-Codes to handle in the UI: `unauthorized`, `forbidden`, `not_found`, `validation_error`, `email_taken`, `already_member`, `last_instructor`.
+Codes to handle in the UI: `unauthorized`, `forbidden`, `not_found`, `validation_error`, `email_taken`, `already_member`, `last_instructor`, `seat_taken`, `room_in_use`.
 
 ## Endpoints
 
@@ -72,6 +76,7 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 | POST | `/auth/register` | anyone | `{ email, password (8+), name }` → `{ token, user }` |
 | POST | `/auth/login` | anyone | `{ email, password }` → `{ token, user }` |
 | GET | `/me` | signed in | user + every course with my role |
+| GET | `/me/exams` | signed in | my exams as a student: seat, room, `checkinCode` |
 
 ### Invites
 | Method | Path | Who | Notes |
@@ -90,3 +95,25 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 | POST | `/courses/:id/roster` | instructor | **`Content-Type: text/csv`**, columns `email, student_number, first_name, last_name, accessible, left_handed` (only email required). Adds or updates by email and never removes anyone. Returns `{ created, updated, errors[], invites[] }` |
 | PATCH / DELETE | `/courses/:id/members/:memberId` | instructor | |
 | POST | `/courses/:id/members/:memberId/invite` | instructor | new invite link; the old one stops working |
+
+### Rooms
+| Method | Path | Who | Body / notes |
+|---|---|---|---|
+| POST | `/rooms` | signed in | `{ name, building?, rows: [{ label?, seats: 12 }]` or `seats: [{ col, label?, accessible?, leftHanded?, broken? }] }`. Seat labels default to row letter + (col+1), e.g. `C7` |
+| GET | `/rooms?q=` | signed in | list with capacity |
+| GET | `/rooms/:id` | signed in | layout as `rows[].seats[]` |
+| PUT | `/rooms/:id` | room creator or exam staff | replace the layout; refused while students are seated there |
+| PATCH | `/rooms/:id/seats/:seatId` | room creator or exam staff | `{ accessible?, leftHanded?, broken? }` |
+
+### Exams and seating
+| Method | Path | Who | Body / notes |
+|---|---|---|---|
+| POST | `/courses/:id/exams` | instructor | `{ title, startsAt (ISO), durationMinutes, roomIds? }` |
+| GET | `/courses/:id/exams` | member | |
+| GET | `/exams/:id` | member | staff get counts; students get `mySeat` (code, seat and room map) |
+| PATCH / DELETE | `/exams/:id` | instructor | |
+| PUT | `/exams/:id/rooms` | instructor | `{ roomIds }` |
+| POST | `/exams/:id/seating/generate` | instructor | `{ seed? }` → `{ assigned, unassigned[], warnings[], seed }` |
+| GET | `/exams/:id/seating` | staff | every seat with its student, plus unseated students |
+| PATCH | `/exams/:id/assignments/:memberId` | staff | `{ seatId, swap? }`; 409 `seat_taken` unless `swap: true` |
+| DELETE | `/exams/:id/assignments/:memberId` | staff | unseat a student |

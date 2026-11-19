@@ -21,3 +21,11 @@ export async function requireCourseRole(
   if (roles && !roles.includes(member.role)) throw forbidden();
   return member;
 }
+
+/** Loads an exam and checks the user's role in its course. */
+export async function requireExamRole(userId: string, examId: string, roles?: CourseRole[]) {
+  const exam = await prisma.exam.findUnique({ where: { id: examId } });
+  if (!exam) throw notFound("Exam");
+  const member = await requireCourseRole(userId, exam.courseId, roles);
+  return { exam, member };
+}

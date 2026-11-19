@@ -38,6 +38,7 @@ model Course {
   term      String? // e.g. Fall 2026
   createdAt DateTime       @default(now())
   members   CourseMember[]
+  exams     Exam[]
 }
 
 // A person's place in a course. Created by the instructor (roster upload or
@@ -60,9 +61,83 @@ model CourseMember {
   leftHanded      Boolean          @default(false)
   createdAt       DateTime         @default(now())
   joinedAt        DateTime?
+  assignments     SeatAssignment[]
 
   @@unique([courseId, email])
   @@unique([courseId, userId])
   @@unique([courseId, studentNumber])
   @@index([userId])
+}
+
+// Rooms are shared across courses so a room is only drawn once.
+model Room {
+  id          String     @id @default(cuid())
+  name        String // e.g. "BA 1130"
+  building    String?
+  createdById String?
+  createdAt   DateTime   @default(now())
+  seats       Seat[]
+  exams       ExamRoom[]
+}
+
+// Rooms are not rectangles: each row can have a different number of seats,
+// and gaps in `col` are aisles or missing seats. Adjacent = same row and
+// col +/- 1, or same col and row +/- 1.
+model Seat {
+  id          String           @id @default(cuid())
+  roomId      String
+  room        Room             @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  row         Int // 0-based, front of the room first
+  col         Int // 0-based position within the row
+  label       String // e.g. "C7"
+  accessible  Boolean          @default(false)
+  leftHanded  Boolean          @default(false)
+  broken      Boolean          @default(false)
+  assignments SeatAssignment[]
+
+  @@unique([roomId, row, col])
+  @@unique([roomId, label])
+}
+
+model Exam {
+  id                 String           @id @default(cuid())
+  courseId           String
+  course             Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title              String
+  startsAt           DateTime
+  durationMinutes    Int
+  createdAt          DateTime         @default(now())
+  seatingGeneratedAt DateTime?
+  rooms              ExamRoom[]
+  assignments        SeatAssignment[]
+}
+
+model ExamRoom {
+  examId String
+  exam   Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Restrict)
+
+  @@id([examId, roomId])
+}
+
+// One seat per student per exam, one student per seat per exam.
+// checkinCode is what the student's QR code encodes.
+model SeatAssignment {
+  id           String       @id @default(cuid())
+  examId       String
+  exam         Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  memberId     String
+  member       CourseMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  seatId       String
+  seat         Seat         @relation(fields: [seatId], references: [id], onDelete: Restrict)
+  roomId       String // copy of seat.roomId, for fast per-room queries
+  checkinCode  String
+  manual       Boolean      @default(false) // true when moved by staff
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([examId, memberId])
+  @@unique([examId, seatId])
+  @@unique([examId, checkinCode])
+  @@index([examId, roomId])
 }

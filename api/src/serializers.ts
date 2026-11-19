@@ -1,4 +1,4 @@
-import type { CourseMember } from "@prisma/client";
+import type { CourseMember, Seat } from "@prisma/client";
 import { config } from "./config.js";
 
 export const inviteUrl = (token: string) => `${config.webUrl}/invite/${token}`;
@@ -24,4 +24,26 @@ export function memberDto(m: CourseMember, opts: { includeInvite?: boolean } = {
     joinedAt: m.joinedAt,
     ...(opts.includeInvite && m.inviteToken ? { inviteUrl: inviteUrl(m.inviteToken) } : {}),
   };
+}
+
+export function seatDto(s: Seat) {
+  return {
+    id: s.id,
+    row: s.row,
+    col: s.col,
+    label: s.label,
+    accessible: s.accessible,
+    leftHanded: s.leftHanded,
+    broken: s.broken,
+  };
+}
+
+/** Groups seats into rows (front first) for drawing the room map. */
+export function seatRows<T extends Seat>(seats: T[]) {
+  const rows = new Map<number, T[]>();
+  for (const s of [...seats].sort((a, b) => a.row - b.row || a.col - b.col)) {
+    if (!rows.has(s.row)) rows.set(s.row, []);
+    rows.get(s.row)!.push(s);
+  }
+  return [...rows.entries()].map(([row, rowSeats]) => ({ row, seats: rowSeats }));
 }

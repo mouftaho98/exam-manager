@@ -8,6 +8,8 @@ import { authRouter } from "./routes/auth.js";
 import { meRouter } from "./routes/me.js";
 import { invitesRouter } from "./routes/invites.js";
 import { coursesRouter } from "./routes/courses.js";
+import { roomsRouter } from "./routes/rooms.js";
+import { examsRouter } from "./routes/exams.js";
 
 export function createApp() {
   const app = express();
@@ -34,6 +36,8 @@ export function createApp() {
   app.use("/invites", invitesRouter); // GET is public; accept requires auth
   app.use("/me", requireAuth, meRouter);
   app.use("/courses", requireAuth, coursesRouter);
+  app.use("/rooms", requireAuth, roomsRouter);
+  app.use("/", examsRouter); // signs in on its own paths, so unknown routes still 404
 
   app.use((_req, _res, next) => next(notFound("Route")));
   app.use(errorHandler);
