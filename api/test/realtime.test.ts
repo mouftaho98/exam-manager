@@ -39,16 +39,20 @@ describe("live updates over Socket.IO", () => {
     url = `http://localhost:${(server.address() as AddressInfo).port}`;
     const http = () => request(server);
 
-    // Set up a course with a proctor, a student and a seated exam.
+    // Set up an offering with a proctor, a student and a seated exam.
     const prof = await register("prof@uni.ca");
     const course = await http().post("/courses").set(auth(prof.token)).send({ code: "C1", name: "Course" });
-    const courseId = course.body.course.id;
+    const offering = await http()
+      .post(`/courses/${course.body.course.id}/offerings`)
+      .set(auth(prof.token))
+      .send({ year: 2026, semester: "FALL" });
+    const offeringId = offering.body.offering.id;
     const roster = await http()
-      .post(`/courses/${courseId}/roster`)
+      .post(`/offerings/${offeringId}/roster`)
       .set(auth(prof.token))
       .set("Content-Type", "text/csv")
       .send("email\nstu@mail.com\n");
-    const ta = await http().post(`/courses/${courseId}/members`).set(auth(prof.token)).send({ email: "ta@uni.ca", role: "PROCTOR" });
+    const ta = await http().post(`/offerings/${offeringId}/members`).set(auth(prof.token)).send({ email: "ta@uni.ca", role: "PROCTOR" });
 
     const proctor = await register("ta@uni.ca");
     proctorToken = proctor.token;
@@ -60,7 +64,7 @@ describe("live updates over Socket.IO", () => {
     const room = await http().post("/rooms").set(auth(prof.token)).send({ name: "R1", rows: [{ seats: 4 }] });
     roomId = room.body.room.id;
     const exam = await http()
-      .post(`/courses/${courseId}/exams`)
+      .post(`/offerings/${offeringId}/exams`)
       .set(auth(prof.token))
       .send({ title: "Final", startsAt: "2026-12-10T09:00:00Z", durationMinutes: 60, roomIds: [roomId] });
     examId = exam.body.exam.id;
@@ -80,7 +84,7 @@ describe("live updates over Socket.IO", () => {
     expect(err.message).toBe("unauthorized");
   });
 
-  it("only lets course staff join an exam channel", async () => {
+  it("only lets the offering's staff join an exam channel", async () => {
     expect(await join(open(studentToken), examId)).toEqual({ ok: false, error: "forbidden" });
     expect(await join(open(proctorToken), examId)).toEqual({ ok: true });
   });

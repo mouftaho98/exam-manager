@@ -20,4 +20,5 @@ CREATE UNIQUE INDEX "CheckIn_examId_memberId_key" ON "CheckIn"("examId", "member
 ALTER TABLE "CheckIn" ADD CONSTRAINT "CheckIn_examId_fkey" FOREIGN KEY ("examId") REFERENCES "Exam"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "CheckIn" ADD CONSTRAINT "CheckIn_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "CourseMember"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "CheckIn" ADD CONSTRAINT "CheckIn_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "OfferingMember"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+

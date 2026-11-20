@@ -13,13 +13,18 @@ export const api = () => request(app);
 /** Empty every table, so each test file starts from a clean database. */
 export async function resetDb() {
   await prisma.$executeRawUnsafe(
-    `TRUNCATE "CheckIn", "SeatAssignment", "ExamRoom", "Exam", "Seat", "Room", "CourseMember", "Course", "User" CASCADE`,
+    `TRUNCATE "CheckIn", "SeatAssignment", "ExamRoom", "Exam", "Seat", "Room", "OfferingMember", "Offering", "Course", "User" CASCADE`,
   );
 }
 
-/** Create an account through the API and return its login token. */
+/**
+ * Create an account through the API and return its login token.
+ * `name` is "First Last"; the last name defaults to "Test".
+ */
 export async function register(email: string, name = email.split("@")[0]) {
-  const res = await api().post("/auth/register").send({ email, password: "password123", name });
+  const [firstName, ...rest] = name.split(" ");
+  const lastName = rest.join(" ") || "Test";
+  const res = await api().post("/auth/register").send({ email, password: "password123", firstName, lastName });
   if (res.status !== 201) throw new Error(`register failed: ${res.status} ${JSON.stringify(res.body)}`);
   return { token: res.body.token as string, user: res.body.user as { id: string; email: string } };
 }
@@ -37,7 +42,7 @@ function expectOk(res: request.Response, what: string) {
 }
 
 /**
- * A course with an instructor, a proctor and 12 students. Ana (ana@mail.com)
+ * An offering (ECE1779, Fall 2026) with an instructor, a proctor and 12 students. Ana (ana@mail.com)
  * has accepted her invite; Bo needs an accessible seat; Cy is left-handed.
  */
 export async function seedCourse() {
@@ -46,7 +51,11 @@ export async function seedCourse() {
     await api().post("/courses").set(auth(instructor.token)).send({ code: "ECE1779", name: "Cloud Computing" }),
     "create course",
   );
-  const courseId: string = course.body.course.id;
+  const offering = expectOk(
+    await api().post(`/courses/${course.body.course.id}/offerings`).set(auth(instructor.token)).send({ year: 2026, semester: "FALL" }),
+    "create offering",
+  );
+  const offeringId: string = offering.body.offering.id;
   const csv = [
     "email,student_number,first_name,last_name,accessible,left_handed",
     "ana@mail.com,1001,Ana,Lee,,",
@@ -55,7 +64,7 @@ export async function seedCourse() {
     ...Array.from({ length: 9 }, (_, i) => `s${i}@mail.com,20${i},S,${i},,`),
   ].join("\n");
   const roster = expectOk(
-    await api().post(`/courses/${courseId}/roster`).set(auth(instructor.token)).set("Content-Type", "text/csv").send(csv),
+    await api().post(`/offerings/${offeringId}/roster`).set(auth(instructor.token)).set("Content-Type", "text/csv").send(csv),
     "roster upload",
   );
   const invites = new Map<string, string>(
@@ -63,7 +72,7 @@ export async function seedCourse() {
   );
 
   const ta = expectOk(
-    await api().post(`/courses/${courseId}/members`).set(auth(instructor.token)).send({ email: "ta@uni.ca", role: "PROCTOR" }),
+    await api().post(`/offerings/${offeringId}/members`).set(auth(instructor.token)).send({ email: "ta@uni.ca", role: "PROCTOR" }),
     "invite proctor",
   );
   const proctor = await register("ta@uni.ca", "TA");
@@ -74,7 +83,7 @@ export async function seedCourse() {
     await api().post(`/invites/${tokenFromInviteUrl(invites.get("ana@mail.com")!)}/accept`).set(auth(student.token)),
     "accept student",
   );
-  return { instructor, proctor, student, courseId, anaMemberId: accepted.body.member.id as string };
+  return { instructor, proctor, student, offeringId, anaMemberId: accepted.body.member.id as string };
 }
 
 /**
@@ -82,7 +91,7 @@ export async function seedCourse() {
  * Room A: rows of 4, 4 (aisle in the middle) and 6 seats; 2 accessible, 1 broken.
  * Room B: 2 rows of 3; 1 left-handed seat.
  */
-export async function seedExam(instructorToken: string, courseId: string) {
+export async function seedExam(instructorToken: string, offeringId: string) {
   const a = expectOk(
     await api()
       .post("/rooms")
@@ -103,7 +112,7 @@ export async function seedExam(instructorToken: string, courseId: string) {
   );
   const exam = expectOk(
     await api()
-      .post(`/courses/${courseId}/exams`)
+      .post(`/offerings/${offeringId}/exams`)
       .set(auth(instructorToken))
       .send({ title: "Midterm", startsAt: "2026-12-01T14:00:00Z", durationMinutes: 120, roomIds: [a.body.room.id, b.body.room.id] }),
     "create exam",

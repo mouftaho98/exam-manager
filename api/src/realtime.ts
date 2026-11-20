@@ -14,7 +14,7 @@ import { STAFF } from "./access.js";
 // Live updates for exam day.
 //
 // Clients connect with { auth: { token } } and emit "exam:join" with
-// { examId } to receive events for that exam. Only course staff can join.
+// { examId } to receive events for that exam. Only the exam's staff (its offering's instructors and proctors) can join.
 // Each exam has its own Socket.IO room, "exam:<id>".
 //
 // With REDIS_URL set, the Redis adapter relays events between API pods, so a
@@ -83,11 +83,11 @@ export async function attachRealtime(server: HttpServer): Promise<Server> {
       const reply = typeof ack === "function" ? ack : () => {};
       try {
         const { examId } = joinBody.parse(raw);
-        // Only active staff of the exam's course may listen.
-        const exam = await prisma.exam.findUnique({ where: { id: examId }, select: { courseId: true } });
+        // Only active staff of the exam's offering may listen.
+        const exam = await prisma.exam.findUnique({ where: { id: examId }, select: { offeringId: true } });
         const member = exam
-          ? await prisma.courseMember.findFirst({
-              where: { courseId: exam.courseId, userId: socket.data.user.id, status: "ACTIVE", role: { in: STAFF } },
+          ? await prisma.offeringMember.findFirst({
+              where: { offeringId: exam.offeringId, userId: socket.data.user.id, status: "ACTIVE", role: { in: STAFF } },
             })
           : null;
         if (!member) return reply({ ok: false, error: "forbidden" });

@@ -2,7 +2,7 @@
  * Rooms and their seat layouts (mounted at /rooms, behind requireAuth).
  *
  * Rooms aren't tied to a course: any signed-in user can create one, and every
- * course can use it for exams. Only the creator, or staff of a course with an
+ * offering can use it for exams. Only the creator, or staff of an offering with an
  * exam in the room, can change it.
  */
 import { Router } from "express";
@@ -101,7 +101,7 @@ function roomDto(room: { id: string; name: string; building: string | null; crea
   };
 }
 
-/** Room creator, or staff of a course that has an exam in this room, may edit it. */
+/** Room creator, or staff of an offering that has an exam in this room, may edit it. */
 async function assertCanEditRoom(userId: string, roomId: string) {
   const room = await prisma.room.findUnique({ where: { id: roomId } });
   if (!room) throw notFound("Room");
@@ -109,7 +109,7 @@ async function assertCanEditRoom(userId: string, roomId: string) {
   const staffExam = await prisma.examRoom.findFirst({
     where: {
       roomId,
-      exam: { course: { members: { some: { userId, status: "ACTIVE", role: { in: STAFF } } } } },
+      exam: { offering: { members: { some: { userId, status: "ACTIVE", role: { in: STAFF } } } } },
     },
   });
   if (!staffExam) throw forbidden("Only the room's creator or staff of an exam in this room can edit it");

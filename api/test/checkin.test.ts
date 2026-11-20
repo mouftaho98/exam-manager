@@ -19,9 +19,9 @@ describe("check-in and attendance", () => {
 
   beforeAll(async () => {
     await resetDb();
-    let courseId: string;
-    ({ instructor, proctor, student, courseId, anaMemberId } = await seedCourse());
-    ({ examId, roomAId, roomBId } = await seedExam(instructor.token, courseId));
+    let offeringId: string;
+    ({ instructor, proctor, student, offeringId, anaMemberId } = await seedCourse());
+    ({ examId, roomAId, roomBId } = await seedExam(instructor.token, offeringId));
     const mine = await api().get("/me/exams").set(auth(student.token));
     anaCode = mine.body.exams[0].checkinCode;
     anaRoomId = mine.body.exams[0].room.id;
@@ -70,7 +70,7 @@ describe("check-in and attendance", () => {
   });
 
   it("records exactly one check-in when 50 scans of the same student arrive at once", async () => {
-    const bo = await prisma.seatAssignment.findFirstOrThrow({ where: { examId, member: { email: "bo@mail.com" } } });
+    const bo = await prisma.seatAssignment.findFirstOrThrow({ where: { examId, member: { user: { email: "bo@mail.com" } } } });
     const results = await Promise.all(
       Array.from({ length: 50 }, () =>
         api().post(`/exams/${examId}/checkins`).set(auth(proctor.token)).send({ code: bo.checkinCode, roomId: bo.roomId }),
@@ -83,7 +83,7 @@ describe("check-in and attendance", () => {
   });
 
   it("can check a student in by name when they lost their code", async () => {
-    const cy = await prisma.seatAssignment.findFirstOrThrow({ where: { examId, member: { email: "cy@mail.com" } } });
+    const cy = await prisma.seatAssignment.findFirstOrThrow({ where: { examId, member: { user: { email: "cy@mail.com" } } } });
     const res = await api().post(`/exams/${examId}/checkins`).set(auth(proctor.token)).send({ memberId: cy.memberId, roomId: cy.roomId });
     expect(res.status).toBe(201);
   });

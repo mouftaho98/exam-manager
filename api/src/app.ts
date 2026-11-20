@@ -17,6 +17,7 @@ import { invitesRouter } from "./routes/invites.js";
 import { coursesRouter } from "./routes/courses.js";
 import { roomsRouter } from "./routes/rooms.js";
 import { examsRouter } from "./routes/exams.js";
+import { offeringsRouter } from "./routes/offerings.js";
 
 /** Create a new, fully configured Express app. */
 export function createApp() {
@@ -54,9 +55,10 @@ export function createApp() {
   app.use("/auth", authRouter); // register and log in (public)
   app.use("/invites", invitesRouter); // GET is public; accept requires auth
   app.use("/me", requireAuth, meRouter); // the signed-in user's own data
-  app.use("/courses", requireAuth, coursesRouter); // courses and their members
+  app.use("/courses", requireAuth, coursesRouter); // the course catalog
+  app.use("/offerings", requireAuth, offeringsRouter); // one term of a course, and its members
   app.use("/rooms", requireAuth, roomsRouter); // room layouts (shared by all courses)
-  // Exams live under both /courses/:id/exams and /exams/:id, so this router is
+  // Exams live under both /offerings/:id/exams and /exams/:id, so this router is
   // mounted at "/". It signs in on its own paths, so unknown routes still 404.
   app.use("/", examsRouter);
 

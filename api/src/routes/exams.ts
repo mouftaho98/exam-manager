@@ -8,19 +8,19 @@
  */
 import { Router } from "express";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
+import { Prisma, type OfferingMember, type User } from "@prisma/client";
 import { prisma } from "../db.js";
 import { currentUser, requireAuth } from "../auth.js";
-import { INSTRUCTOR_ONLY, STAFF, requireCourseRole, requireExamRole } from "../access.js";
+import { INSTRUCTOR_ONLY, STAFF, requireExamRole, requireOfferingRole } from "../access.js";
 import { badRequest, conflict, HttpError, notFound } from "../errors.js";
 import { normalizeCheckinCode, uniqueCheckinCodes } from "../codes.js";
 import { assignSeats, seededRandom } from "../seating.js";
 import { publish } from "../realtime.js";
-import { memberName, seatDto, seatRows } from "../serializers.js";
+import { personName, seatDto, seatRows } from "../serializers.js";
 
 export const examsRouter = Router();
 // Mounted at "/", so require sign-in only on this router's own paths.
-examsRouter.use(["/courses", "/exams"], requireAuth);
+examsRouter.use(["/offerings", "/exams"], requireAuth);
 
 // ---- Request body shapes ----
 
@@ -48,22 +48,17 @@ const checkinBody = z
 // The database client inside a transaction (same API as `prisma`).
 type Tx = Prisma.TransactionClient;
 
+// A student member with their person details loaded.
+type Student = OfferingMember & { user: User };
+
 /** The student fields the seating screens need. */
-const studentSummary = (m: {
-  id: string;
-  email: string;
-  firstName: string | null;
-  lastName: string | null;
-  studentNumber: string | null;
-  needsAccessible: boolean;
-  leftHanded: boolean;
-}) => ({
+const studentSummary = (m: Student) => ({
   memberId: m.id,
-  name: memberName(m),
-  email: m.email,
-  studentNumber: m.studentNumber,
-  needsAccessible: m.needsAccessible,
-  leftHanded: m.leftHanded,
+  name: personName(m.user),
+  email: m.user.email,
+  studentNumber: m.user.studentNumber,
+  needsAccessible: m.user.needsAccessible,
+  leftHanded: m.user.leftHanded,
 });
 
 /** Throw 400 unless every room id exists. Returns the ids with duplicates removed. */
@@ -81,24 +76,24 @@ async function examRoomIds(tx: Tx, examId: string) {
 
 // ---------- Exams ----------
 
-/** Create an exam in a course, optionally with its rooms. Instructors only. */
-examsRouter.post("/courses/:courseId/exams", async (req, res) => {
-  const courseId = req.params.courseId;
-  await requireCourseRole(currentUser(req).id, courseId, INSTRUCTOR_ONLY);
+/** Create an exam in an offering, optionally with its rooms. Instructors only. */
+examsRouter.post("/offerings/:offeringId/exams", async (req, res) => {
+  const offeringId = req.params.offeringId;
+  await requireOfferingRole(currentUser(req).id, offeringId, INSTRUCTOR_ONLY);
   const { roomIds, ...body } = examBody.parse(req.body);
   const rooms = roomIds ? await assertRoomsExist(roomIds) : [];
   const exam = await prisma.exam.create({
-    data: { ...body, courseId, rooms: { create: rooms.map((roomId) => ({ roomId })) } },
+    data: { ...body, offeringId, rooms: { create: rooms.map((roomId) => ({ roomId })) } },
     include: { rooms: { include: { room: true } } },
   });
   res.status(201).json({ exam: examDto(exam) });
 });
 
-/** All exams in a course, soonest first. Any member. */
-examsRouter.get("/courses/:courseId/exams", async (req, res) => {
-  await requireCourseRole(currentUser(req).id, req.params.courseId);
+/** All exams in an offering, soonest first. Any member. */
+examsRouter.get("/offerings/:offeringId/exams", async (req, res) => {
+  await requireOfferingRole(currentUser(req).id, req.params.offeringId);
   const exams = await prisma.exam.findMany({
-    where: { courseId: req.params.courseId },
+    where: { offeringId: req.params.offeringId },
     orderBy: { startsAt: "asc" },
     include: { rooms: { include: { room: true } } },
   });
@@ -144,11 +139,11 @@ examsRouter.get("/exams/:examId", async (req, res) => {
     });
     return;
   }
-  // Staff view: how many students are seated and checked in, out of how many in the course.
+  // Staff view: how many students are seated and checked in, out of how many in the offering.
   const [assigned, checkedIn, students] = await Promise.all([
     prisma.seatAssignment.count({ where: { examId: exam.id } }),
     prisma.checkIn.count({ where: { examId: exam.id } }),
-    prisma.courseMember.count({ where: { courseId: exam.courseId, role: "STUDENT" } }),
+    prisma.offeringMember.count({ where: { offeringId: exam.offeringId, role: "STUDENT" } }),
   ]);
   res.json({ exam: examDto(full), myRole: member.role, counts: { students, assigned, checkedIn } });
 });
@@ -197,7 +192,7 @@ examsRouter.put("/exams/:examId/rooms", async (req, res) => {
 // ---------- Seating ----------
 
 /**
- * Randomly seat every student in the course across the exam's rooms.
+ * Randomly seat every student in the offering across the exam's rooms.
  * Replaces the current seating, but keeps each student's check-in code.
  * Refused once check-in has started.
  */
@@ -220,11 +215,13 @@ examsRouter.post("/exams/:examId/seating/generate", async (req, res) => {
 
       const [seats, students, previous] = await Promise.all([
         tx.seat.findMany({ where: { roomId: { in: roomIds } } }),
-        tx.courseMember.findMany({ where: { courseId: exam.courseId, role: "STUDENT" } }),
+        tx.offeringMember.findMany({ where: { offeringId: exam.offeringId, role: "STUDENT" }, include: { user: true } }),
         tx.seatAssignment.findMany({ where: { examId: exam.id } }),
       ]);
       // Work out the new seating in memory (see seating.ts).
-      const plan = assignSeats(seats, students, seededRandom(usedSeed));
+      // Accessibility needs are stored on the person (User).
+      const needs = students.map((s) => ({ id: s.id, needsAccessible: s.user.needsAccessible, leftHanded: s.user.leftHanded }));
+      const plan = assignSeats(seats, needs, seededRandom(usedSeed));
 
       // Students keep their existing check-in code; only newly seated students get a new one.
       const oldCodes = new Map(previous.map((a) => [a.memberId, a.checkinCode]));
@@ -268,9 +265,9 @@ examsRouter.get("/exams/:examId/seating", async (req, res) => {
   const roomIds = await examRoomIds(prisma, exam.id);
   const [rooms, assignments, checkIns, students] = await Promise.all([
     prisma.room.findMany({ where: { id: { in: roomIds } }, include: { seats: true }, orderBy: { name: "asc" } }),
-    prisma.seatAssignment.findMany({ where: { examId: exam.id }, include: { member: true } }),
+    prisma.seatAssignment.findMany({ where: { examId: exam.id }, include: { member: { include: { user: true } } } }),
     prisma.checkIn.findMany({ where: { examId: exam.id } }),
-    prisma.courseMember.findMany({ where: { courseId: exam.courseId, role: "STUDENT" } }),
+    prisma.offeringMember.findMany({ where: { offeringId: exam.offeringId, role: "STUDENT" }, include: { user: true } }),
   ]);
   // Look up who sits in each seat, and who has no seat yet.
   const bySeat = new Map(assignments.map((a) => [a.seatId, a]));
@@ -315,8 +312,8 @@ examsRouter.patch("/exams/:examId/assignments/:memberId", async (req, res) => {
   const moves = await prisma.$transaction(
     async (tx) => {
       // Check the student and the seat are valid for this exam.
-      const member = await tx.courseMember.findFirst({
-        where: { id: memberId, courseId: exam.courseId, role: "STUDENT" },
+      const member = await tx.offeringMember.findFirst({
+        where: { id: memberId, offeringId: exam.offeringId, role: "STUDENT" },
       });
       if (!member) throw notFound("Student");
       const seat = await tx.seat.findUnique({ where: { id: seatId } });
@@ -330,12 +327,12 @@ examsRouter.patch("/exams/:examId/assignments/:memberId", async (req, res) => {
       });
       const occupant = await tx.seatAssignment.findUnique({
         where: { examId_seatId: { examId: exam.id, seatId } },
-        include: { member: true },
+        include: { member: { include: { user: true } } },
       });
       if (occupant?.memberId === memberId) return []; // already there: nothing to do
 
       if (occupant && !swap) {
-        throw conflict("seat_taken", `Seat ${seat.label} is taken by ${memberName(occupant.member)}`, {
+        throw conflict("seat_taken", `Seat ${seat.label} is taken by ${personName(occupant.member.user)}`, {
           occupant: studentSummary(occupant.member),
         });
       }
@@ -440,7 +437,7 @@ examsRouter.post("/exams/:examId/checkins", async (req, res) => {
     where: body.code
       ? { examId: exam.id, checkinCode: normalizeCheckinCode(body.code) }
       : { examId: exam.id, memberId: body.memberId },
-    include: { member: true, seat: { include: { room: true } } },
+    include: { member: { include: { user: true } }, seat: { include: { room: true } } },
   });
   if (!assignment) {
     if (body.code) throw new HttpError(404, "unknown_code", "No student in this exam has that check-in code");
@@ -516,7 +513,7 @@ examsRouter.get("/exams/:examId/attendance", async (req, res) => {
       include: { _count: { select: { seats: { where: { broken: false } } } } },
       orderBy: { name: "asc" },
     }),
-    prisma.seatAssignment.findMany({ where: { examId: exam.id }, include: { member: true, seat: true } }),
+    prisma.seatAssignment.findMany({ where: { examId: exam.id }, include: { member: { include: { user: true } }, seat: true } }),
     prisma.checkIn.findMany({ where: { examId: exam.id } }),
   ]);
   // Who has arrived, for counting per room and listing who's missing.
@@ -546,7 +543,7 @@ examsRouter.get("/exams/:examId/attendance", async (req, res) => {
 function examDto(exam: Prisma.ExamGetPayload<{ include: { rooms: { include: { room: true } } } }>) {
   return {
     id: exam.id,
-    courseId: exam.courseId,
+    offeringId: exam.offeringId,
     title: exam.title,
     startsAt: exam.startsAt,
     durationMinutes: exam.durationMinutes,

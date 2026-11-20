@@ -57,16 +57,19 @@ The container runs `prisma migrate deploy` before starting, so a new image appli
 
 ## Concepts
 
-- **Roles are per course.** A user can be `INSTRUCTOR`, `PROCTOR` or `STUDENT`, and the role can differ from course to course. Whoever creates a course is its instructor.
-- **Invites.** Uploading a roster or adding a member creates a `CourseMember` with an invite link. The person signs in or creates an account *with the invited email*, then accepts. Until then their status is `INVITED`, but they still get a seat.
+- **Courses and offerings.** A course is a catalog entry (`ECE1779 Cloud Computing`). An offering is one term of it (`ECE1779, Fall 2026`), with its own instructors, proctors and students. Course codes are unique; each course runs at most once per semester (`WINTER`, `SUMMER`, `FALL`).
+- **Roles are per offering.** A user can be `INSTRUCTOR`, `PROCTOR` or `STUDENT`, and the role can differ from offering to offering. Whoever creates an offering is its instructor.
+- **People live on `User`.** Name, student number and accessibility settings (`needsAccessible`, `leftHanded`) are stored once per person and shared by every offering they're in.
+- **Invites.** Uploading a roster or adding a member creates the person's `User` if they don't have one yet (with no password), plus an `OfferingMember` with an invite link. The person registers or signs in *with the invited email*, then accepts. Registering with that email takes over the existing record, so roster details carry over. Until they accept, their status is `INVITED`.
+- **What a roster can change.** For a person who already exists: accessibility flags and student number are updated, but only when the CSV has that column. Their name is only updated if they haven't registered yet.
 - **Rooms** are shared between courses. Each row can have a different length, and gaps in `col` are aisles.
-- **Seating** places students who need an accessible seat first, then left-handed students, then everyone else at random. It keeps one empty seat between students while the room allows it, and never uses broken seats. Staff can move or swap students afterwards.
+- **Seating** places students who need an accessible seat first, then left-handed students, then everyone else at random. It keeps one empty seat between students while the room allows it, and never uses broken seats. Staff can move or swap students afterwards. Invited students who haven't accepted yet still get a seat.
 - **Check-in codes.** Each student gets one 6-character code per exam; the QR code just encodes it. The code survives regenerating the seating and manual moves.
 
 ## Errors
 
 Every error looks like `{ "error": { "code": "...", "message": "...", "details": ... } }`.
-Codes to handle in the UI: `unauthorized`, `forbidden`, `not_found`, `validation_error`, `email_taken`, `already_member`, `seat_taken`, `wrong_room`, `unknown_code`, `no_seat`, `checkin_started`, `room_in_use`, `last_instructor`.
+Codes to handle in the UI: `unauthorized`, `forbidden`, `not_found`, `validation_error`, `email_taken`, `course_exists`, `offering_exists`, `already_member`, `last_instructor`, `seat_taken`, `room_in_use`, `wrong_room`, `unknown_code`, `no_seat`, `checkin_started`.
 
 ## Endpoints
 
@@ -75,28 +78,37 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 ### Auth and me
 | Method | Path | Who | Body / notes |
 |---|---|---|---|
-| POST | `/auth/register` | anyone | `{ email, password (8+), name }` → `{ token, user }` |
+| POST | `/auth/register` | anyone | `{ email, password (8+), firstName, lastName }` → `{ token, user }` |
 | POST | `/auth/login` | anyone | `{ email, password }` → `{ token, user }` |
-| GET | `/me` | signed in | user + every course with my role |
-| GET | `/me/exams` | signed in | my exams as a student: seat, room, `checkinCode`, `checkedInAt` |
+| GET | `/me` | signed in | user (name, student number, accessibility) + every offering with my role |
+| PATCH | `/me` | signed in | `{ firstName?, lastName? }` |
+| GET | `/me/exams` | signed in | my exams as a student: offering, seat, room, `checkinCode`, `checkedInAt` |
 
 ### Invites
 | Method | Path | Who | Notes |
 |---|---|---|---|
-| GET | `/invites/:token` | anyone | course, email, role, `accountExists` (decides "sign in" vs "create account") |
-| POST | `/invites/:token/accept` | signed in with the invited email | joins the course; the link stops working afterwards |
+| GET | `/invites/:token` | anyone | offering (with course), email, role, `accountExists` (decides "sign in" vs "create account") |
+| POST | `/invites/:token/accept` | signed in with the invited email | joins the offering; the link stops working afterwards |
 
-### Courses and members
+### Courses (catalog)
 | Method | Path | Who | Body / notes |
 |---|---|---|---|
-| POST | `/courses` | signed in | `{ code, name, term? }` |
-| GET | `/courses/:id` | member | course, `myRole`, member counts |
-| PATCH / DELETE | `/courses/:id` | instructor | |
-| GET | `/courses/:id/members?role=` | staff | instructors also get each member's `inviteUrl` |
-| POST | `/courses/:id/members` | instructor | `{ email, role, studentNumber?, firstName?, lastName?, needsAccessible?, leftHanded? }` |
-| POST | `/courses/:id/roster` | instructor | **`Content-Type: text/csv`**, columns `email, student_number, first_name, last_name, accessible, left_handed` (only email required). Adds or updates by email and never removes anyone. Returns `{ created, updated, errors[], invites[] }` |
-| PATCH / DELETE | `/courses/:id/members/:memberId` | instructor | |
-| POST | `/courses/:id/members/:memberId/invite` | instructor | new invite link; the old one stops working |
+| POST | `/courses` | signed in | `{ code, name }`. Code is stored uppercase without spaces. 409 `course_exists` (with `details.courseId`) if taken |
+| GET | `/courses?q=` | signed in | search by code or name |
+| GET | `/courses/:id` | signed in | course + its offerings, newest first, with `myRole` (null if not a member) |
+| PATCH | `/courses/:id` | creator or an instructor of one of its offerings | `{ name }` |
+| POST | `/courses/:id/offerings` | signed in | `{ year, semester }`; creator becomes instructor. 409 `offering_exists` |
+
+### Offerings and members
+| Method | Path | Who | Body / notes |
+|---|---|---|---|
+| GET | `/offerings/:id` | member | offering, `myRole`, member counts |
+| PATCH / DELETE | `/offerings/:id` | instructor | `{ year?, semester? }` |
+| GET | `/offerings/:id/members?role=` | staff | instructors also get each member's `inviteUrl` |
+| POST | `/offerings/:id/members` | instructor | `{ email, role, studentNumber?, firstName?, lastName?, needsAccessible?, leftHanded? }` |
+| POST | `/offerings/:id/roster` | instructor | **`Content-Type: text/csv`**, columns `email, student_number, first_name, last_name, accessible, left_handed` (only email required). Adds or updates by email and never removes anyone. Returns `{ created, updated, errors[], invites[] }` |
+| PATCH / DELETE | `/offerings/:id/members/:memberId` | instructor | PATCH takes `role` and the person fields above |
+| POST | `/offerings/:id/members/:memberId/invite` | instructor | new invite link; the old one stops working |
 
 ### Rooms
 | Method | Path | Who | Body / notes |
@@ -110,8 +122,8 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 ### Exams and seating
 | Method | Path | Who | Body / notes |
 |---|---|---|---|
-| POST | `/courses/:id/exams` | instructor | `{ title, startsAt (ISO), durationMinutes, roomIds? }` |
-| GET | `/courses/:id/exams` | member | |
+| POST | `/offerings/:id/exams` | instructor | `{ title, startsAt (ISO), durationMinutes, roomIds? }` |
+| GET | `/offerings/:id/exams` | member | |
 | GET | `/exams/:id` | member | staff get counts; students get `mySeat` (code, seat and room map) |
 | PATCH / DELETE | `/exams/:id` | instructor | |
 | PUT | `/exams/:id/rooms` | instructor | `{ roomIds }` |

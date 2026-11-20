@@ -19,7 +19,7 @@ describe("rooms, exams and seating", () => {
   let instructor: { token: string };
   let proctor: { token: string };
   let student: { token: string };
-  let courseId: string;
+  let offeringId: string;
   let anaMemberId: string;
   let roomA: { id: string; rows: { seats: { id: string; label: string }[] }[] };
   let roomB: { id: string };
@@ -34,7 +34,7 @@ describe("rooms, exams and seating", () => {
 
   beforeAll(async () => {
     await resetDb();
-    ({ instructor, proctor, student, courseId, anaMemberId } = await seedCourse());
+    ({ instructor, proctor, student, offeringId, anaMemberId } = await seedCourse());
   });
   afterAll(async () => {
     await prisma.$disconnect();
@@ -70,7 +70,7 @@ describe("rooms, exams and seating", () => {
 
   it("creates an exam in two rooms and generates seating", async () => {
     const exam = await api()
-      .post(`/courses/${courseId}/exams`)
+      .post(`/offerings/${offeringId}/exams`)
       .set(auth(instructor.token))
       .send({ title: "Midterm", startsAt: "2026-12-01T14:00:00Z", durationMinutes: 120, roomIds: [roomA.id, roomB.id] });
     expect(exam.status).toBe(201);
