@@ -6,8 +6,8 @@
  * User with no password. The rules for an existing User are stricter,
  * because that record is shared across every offering the person is in:
  *
- * - accessibility / left-handed flags: always updated (they come from the
- *   instructor or accessibility office, and apply everywhere)
+ * - accessibility / left-handed needs: never set here. Students set those
+ *   themselves, at sign-up or with PATCH /me.
  * - student number: updated, unless another person already has it
  * - name: only updated while the person hasn't registered yet. After that,
  *   the name they chose is theirs.
@@ -20,8 +20,6 @@ export interface PersonInput {
   firstName?: string;
   lastName?: string;
   studentNumber?: string;
-  needsAccessible?: boolean;
-  leftHanded?: boolean;
 }
 
 /**
@@ -50,8 +48,6 @@ export async function upsertPerson(
 
   // Only include fields that were actually given, so blanks don't wipe data.
   const data: Prisma.UserUpdateInput = {};
-  if (input.needsAccessible !== undefined) data.needsAccessible = input.needsAccessible;
-  if (input.leftHanded !== undefined) data.leftHanded = input.leftHanded;
   if (input.studentNumber !== undefined) data.studentNumber = input.studentNumber;
   if (existing.passwordHash === null) {
     // Not registered yet, so the instructor's spelling of the name is all we have.

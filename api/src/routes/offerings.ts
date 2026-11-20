@@ -40,8 +40,6 @@ const personFields = {
   studentNumber: z.string().trim().min(1).max(50).optional(),
   firstName: z.string().trim().max(100).optional(),
   lastName: z.string().trim().max(100).optional(),
-  needsAccessible: z.boolean().optional(),
-  leftHanded: z.boolean().optional(),
 };
 
 const addMemberBody = z.object({
@@ -147,7 +145,7 @@ offeringsRouter.post("/:offeringId/roster", async (req, res) => {
       const created: (OfferingMember & { user: { email: string } })[] = [];
       let updated = 0;
       for (const { line, ...person } of rows) {
-        // Create or update the person (name, student number, accessibility).
+        // Create or update the person (name, student number).
         const result = await upsertPerson(tx, person);
         if ("error" in result) {
           rowErrors.push({ line, message: result.error });

@@ -14,9 +14,6 @@ export interface RosterRow {
   studentNumber?: string;
   firstName?: string;
   lastName?: string;
-  // undefined when the CSV has no such column, so existing settings are left alone.
-  needsAccessible?: boolean;
-  leftHanded?: boolean;
 }
 
 /** A row we couldn't use, and why. Shown to the instructor so they can fix the file. */
@@ -39,16 +36,8 @@ const HEADER_ALIASES: Record<string, keyof Omit<RosterRow, "line">> = {
   lastname: "lastName",
   surname: "lastName",
   familyname: "lastName",
-  accessible: "needsAccessible",
-  accessibility: "needsAccessible",
-  needsaccessible: "needsAccessible",
-  wheelchair: "needsAccessible",
-  lefthanded: "leftHanded",
-  lefty: "leftHanded",
 };
 
-// Cell values that count as "yes" in the accessible / left-handed columns. Anything else is no.
-const TRUE_VALUES = new Set(["true", "yes", "y", "1", "x"]);
 const emailSchema = z.string().email();
 
 /** "Student Number" -> "studentnumber", so header names can be matched against HEADER_ALIASES. */
@@ -58,8 +47,9 @@ function normalizeHeader(header: string): string {
 
 /**
  * Parses a roster CSV. Expected columns (header row required):
- * email, student_number, first_name, last_name, accessible, left_handed
- * Only email is required. Rows with problems are reported, not thrown.
+ * email, student_number, first_name, last_name
+ * Only email is required. Other columns are ignored: accessibility and
+ * left-handedness are set by students themselves, not on the roster. Rows with problems are reported, not thrown.
  */
 export function parseRoster(csv: string): { rows: RosterRow[]; errors: RosterError[] } {
   let records: string[][];
@@ -89,19 +79,11 @@ export function parseRoster(csv: string): { rows: RosterRow[]; errors: RosterErr
 
   records.slice(1).forEach((record, i) => {
     const line = i + 2; // +1 for the header row, +1 because line numbers start at 1
-    // A flag column that exists but is blank for this row means "no".
     const row: RosterRow = { line, email: "" };
-    if (fields.includes("needsAccessible")) row.needsAccessible = false;
-    if (fields.includes("leftHanded")) row.leftHanded = false;
     // Copy each cell into the right field.
     record.forEach((value, col) => {
       const field = fields[col];
-      if (!field || value === "") return;
-      if (field === "needsAccessible" || field === "leftHanded") {
-        row[field] = TRUE_VALUES.has(value.toLowerCase());
-      } else {
-        row[field] = value;
-      }
+      if (field && value !== "") row[field] = value;
     });
     row.email = row.email.toLowerCase();
 
