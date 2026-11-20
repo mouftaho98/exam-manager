@@ -11,6 +11,7 @@
 //    pattern, so up to about half the seats can be filled with no two
 //    students side by side. Only once that runs out do students sit together.
 
+/** A seat, with just the fields the algorithm needs. */
 export interface SeatInput {
   id: string;
   roomId: string;
@@ -21,16 +22,20 @@ export interface SeatInput {
   broken: boolean;
 }
 
+/** A student, with just the fields the algorithm needs. */
 export interface StudentInput {
   id: string;
   needsAccessible: boolean;
   leftHanded: boolean;
 }
 
+/** What assignSeats returns. */
 export interface SeatingResult {
   /** studentId -> seatId */
   assignments: Map<string, string>;
+  /** Students who didn't fit (more students than usable seats). */
   unassigned: string[];
+  /** Human-readable problems to show the instructor, e.g. not enough accessible seats. */
   warnings: string[];
 }
 
@@ -46,6 +51,7 @@ export function seededRandom(seed: number): () => number {
   };
 }
 
+/** Fisher-Yates shuffle. Returns a new array; uses `random` so results are repeatable. */
 function shuffle<T>(items: T[], random: () => number): T[] {
   const a = [...items];
   for (let i = a.length - 1; i > 0; i--) {
@@ -55,15 +61,23 @@ function shuffle<T>(items: T[], random: () => number): T[] {
   return a;
 }
 
+/** A string key for a seat position, so we can look up "is this spot taken?" in a Set. */
 const key = (roomId: string, row: number, col: number) => `${roomId}:${row}:${col}`;
 
+/**
+ * Decide which student sits where. Doesn't touch the database: the caller
+ * saves the result. Pass seededRandom(n) as `random` to get the same seating
+ * every time for the same input.
+ */
 export function assignSeats(
   seats: SeatInput[],
   students: StudentInput[],
   random: () => number = Math.random,
 ): SeatingResult {
   const usable = seats.filter((s) => !s.broken);
+  // Seat ids still available.
   const free = new Set(usable.map((s) => s.id));
+  // Positions already taken, as key(room,row,col), for the neighbour checks.
   const occupied = new Set<string>(); // position keys
   const assignments = new Map<string, string>();
   const unassigned: string[] = [];
@@ -76,7 +90,9 @@ export function assignSeats(
     const even = inRoom.filter((s) => (s.row + s.col) % 2 === 0).length;
     parityByRoom.set(roomId, even >= inRoom.length - even ? 0 : 1);
   }
+  // 0 if the seat is on this room's checkerboard colour, 1 if not.
   const offPattern = (s: SeatInput) => ((s.row + s.col) % 2 === parityByRoom.get(s.roomId) ? 0 : 1);
+  // How many of the 4 seats around this one (left, right, front, behind) are taken.
   const occupiedNeighbours = (s: SeatInput) =>
     [
       [s.row, s.col - 1],
@@ -101,16 +117,19 @@ export function assignSeats(
     return best;
   }
 
+  /** Give `seat` to the student and mark it as taken. */
   function take(studentId: string, seat: SeatInput) {
     free.delete(seat.id);
     occupied.add(key(seat.roomId, seat.row, seat.col));
     assignments.set(studentId, seat.id);
   }
 
+  // Split students into the three priority groups, each in random order.
   const accessibleStudents = shuffle(students.filter((s) => s.needsAccessible), random);
   const leftHandedStudents = shuffle(students.filter((s) => !s.needsAccessible && s.leftHanded), random);
   const others = shuffle(students.filter((s) => !s.needsAccessible && !s.leftHanded), random);
 
+  // Group 1: students who need an accessible seat.
   for (const student of accessibleStudents) {
     // Prefer seats that are also left-handed if the student is left-handed.
     let seat = pick(usable.filter((s) => s.accessible), (s) => [
@@ -126,6 +145,7 @@ export function assignSeats(
     else unassigned.push(student.id);
   }
 
+  // Group 2: left-handed students.
   for (const student of leftHandedStudents) {
     let seat = pick(usable.filter((s) => s.leftHanded), (s) => [
       s.accessible ? 1 : 0, // keep accessible seats for those who need them
@@ -140,6 +160,7 @@ export function assignSeats(
     else unassigned.push(student.id);
   }
 
+  // Group 3: everyone else. Spacing matters most, then keeping special seats free.
   for (const student of others) {
     const seat = pick(usable, (s) => [occupiedNeighbours(s), isSpecial(s) ? 1 : 0, offPattern(s)]);
     if (seat) take(student.id, seat);
@@ -149,9 +170,14 @@ export function assignSeats(
   if (unassigned.length > 0) {
     warnings.push(`Not enough usable seats: ${unassigned.length} student(s) could not be seated`);
   }
+  // The same warning can be added once per student; only report it once.
   return { assignments, unassigned, warnings: [...new Set(warnings)] };
 }
 
+/**
+ * Compare two score arrays like words in a dictionary: the first differing
+ * number decides. Negative means `a` is the better (lower) score.
+ */
 function compare(a: number[], b: number[]): number {
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] - b[i];
   return 0;

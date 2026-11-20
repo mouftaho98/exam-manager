@@ -1,6 +1,13 @@
+/**
+ * Reads an instructor's roster CSV into rows we can save as course members.
+ *
+ * This is a pure function: no database, no HTTP. The route in
+ * routes/courses.ts decides what to do with the rows.
+ */
 import { parse } from "csv-parse/sync";
 import { z } from "zod";
 
+/** One valid student from the CSV. `line` is the line number in the file, for error messages. */
 export interface RosterRow {
   line: number;
   email: string;
@@ -11,6 +18,7 @@ export interface RosterRow {
   leftHanded: boolean;
 }
 
+/** A row we couldn't use, and why. Shown to the instructor so they can fix the file. */
 export interface RosterError {
   line: number;
   message: string;
@@ -38,9 +46,11 @@ const HEADER_ALIASES: Record<string, keyof Omit<RosterRow, "line">> = {
   lefty: "leftHanded",
 };
 
+// Cell values that count as "yes" in the accessible / left-handed columns. Anything else is no.
 const TRUE_VALUES = new Set(["true", "yes", "y", "1", "x"]);
 const emailSchema = z.string().email();
 
+/** "Student Number" -> "studentnumber", so header names can be matched against HEADER_ALIASES. */
 function normalizeHeader(header: string): string {
   return header.toLowerCase().replace(/[^a-z]/g, "");
 }
@@ -53,6 +63,7 @@ function normalizeHeader(header: string): string {
 export function parseRoster(csv: string): { rows: RosterRow[]; errors: RosterError[] } {
   let records: string[][];
   try {
+    // Strip a byte-order mark (Excel adds one), skip blank lines and trim cells.
     records = parse(csv.replace(/^﻿/, ""), {
       skip_empty_lines: true,
       trim: true,
@@ -63,6 +74,7 @@ export function parseRoster(csv: string): { rows: RosterRow[]; errors: RosterErr
   }
   if (records.length === 0) return { rows: [], errors: [{ line: 0, message: "CSV is empty" }] };
 
+  // Work out which field each column is from the header row. Unknown columns are ignored.
   const fields = records[0].map((h) => HEADER_ALIASES[normalizeHeader(h)]);
   if (!fields.includes("email")) {
     return { rows: [], errors: [{ line: 1, message: "CSV needs an 'email' column in the header row" }] };
@@ -70,12 +82,14 @@ export function parseRoster(csv: string): { rows: RosterRow[]; errors: RosterErr
 
   const rows: RosterRow[] = [];
   const errors: RosterError[] = [];
+  // Track what we've already seen so duplicates within the file are caught.
   const seenEmails = new Set<string>();
   const seenNumbers = new Set<string>();
 
   records.slice(1).forEach((record, i) => {
-    const line = i + 2;
+    const line = i + 2; // +1 for the header row, +1 because line numbers start at 1
     const row: RosterRow = { line, email: "", needsAccessible: false, leftHanded: false };
+    // Copy each cell into the right field.
     record.forEach((value, col) => {
       const field = fields[col];
       if (!field || value === "") return;
@@ -87,6 +101,7 @@ export function parseRoster(csv: string): { rows: RosterRow[]; errors: RosterErr
     });
     row.email = row.email.toLowerCase();
 
+    // Reject bad rows but keep going, so one typo doesn't block the whole upload.
     if (!emailSchema.safeParse(row.email).success) {
       errors.push({ line, message: `Invalid or missing email "${row.email}"` });
       return;

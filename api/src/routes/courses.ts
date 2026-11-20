@@ -1,3 +1,11 @@
+/**
+ * Courses and their members (mounted at /courses, behind requireAuth).
+ *
+ * Who can do what:
+ * - any member can view the course
+ * - staff (instructors and proctors) can list members
+ * - only instructors can change the course, invite people or upload a roster
+ */
 import { Router } from "express";
 import { z } from "zod";
 import type { CourseMember } from "@prisma/client";
@@ -11,12 +19,15 @@ import { inviteUrl, memberDto } from "../serializers.js";
 
 export const coursesRouter = Router();
 
+// ---- Request body shapes (validated with Zod) ----
+
 const courseBody = z.object({
   code: z.string().trim().min(1).max(50),
   name: z.string().trim().min(1).max(200),
   term: z.string().trim().max(50).optional(),
 });
 
+// Optional details about a member, shared by "add" and "update".
 const memberFields = {
   studentNumber: z.string().trim().min(1).max(50).optional(),
   firstName: z.string().trim().max(100).optional(),
@@ -36,6 +47,9 @@ const updateMemberBody = z.object({
   ...memberFields,
 });
 
+// ---- Courses ----
+
+/** Create a course. The creator automatically becomes its first instructor. */
 coursesRouter.post("/", async (req, res) => {
   const user = currentUser(req);
   const body = courseBody.parse(req.body);
@@ -50,6 +64,7 @@ coursesRouter.post("/", async (req, res) => {
   res.status(201).json({ course, myRole: "INSTRUCTOR" });
 });
 
+/** One course, the caller's role in it, and how many members of each role it has. */
 coursesRouter.get("/:courseId", async (req, res) => {
   const me = await requireCourseRole(currentUser(req).id, req.params.courseId);
   const course = await prisma.course.findUniqueOrThrow({ where: { id: req.params.courseId } });
@@ -65,6 +80,7 @@ coursesRouter.get("/:courseId", async (req, res) => {
   });
 });
 
+/** Rename / edit a course. Instructors only. */
 coursesRouter.patch("/:courseId", async (req, res) => {
   await requireCourseRole(currentUser(req).id, req.params.courseId, INSTRUCTOR_ONLY);
   const course = await prisma.course.update({
@@ -74,12 +90,16 @@ coursesRouter.patch("/:courseId", async (req, res) => {
   res.json({ course });
 });
 
+/** Delete a course and everything in it. Instructors only. */
 coursesRouter.delete("/:courseId", async (req, res) => {
   await requireCourseRole(currentUser(req).id, req.params.courseId, INSTRUCTOR_ONLY);
   await prisma.course.delete({ where: { id: req.params.courseId } });
   res.status(204).end();
 });
 
+// ---- Members ----
+
+/** List members, optionally filtered with ?role=STUDENT. Staff only. */
 coursesRouter.get("/:courseId/members", async (req, res) => {
   const me = await requireCourseRole(currentUser(req).id, req.params.courseId, STAFF);
   const role = z.enum(["INSTRUCTOR", "PROCTOR", "STUDENT"]).optional().parse(req.query.role);
@@ -87,6 +107,7 @@ coursesRouter.get("/:courseId/members", async (req, res) => {
     where: { courseId: req.params.courseId, ...(role ? { role } : {}) },
     orderBy: [{ role: "asc" }, { lastName: "asc" }, { email: "asc" }],
   });
+  // Proctors can see the list, but only instructors get the invite links.
   res.json({ members: members.map((m) => memberDto(m, { includeInvite: me.role === "INSTRUCTOR" })) });
 });
 
@@ -116,10 +137,13 @@ coursesRouter.post("/:courseId/roster", async (req, res) => {
   }
   const { rows, errors } = parseRoster(req.body);
 
+  // Load everyone already in the course, to tell new students from updates.
+
   const existing = await prisma.courseMember.findMany({ where: { courseId } });
   const byEmail = new Map(existing.map((m) => [m.email, m]));
   const byNumber = new Map(existing.filter((m) => m.studentNumber).map((m) => [m.studentNumber!, m]));
 
+  // Sort each row into "create", "update" or "error" before touching the database.
   const rowErrors: RosterError[] = [...errors];
   const toCreate: Parameters<typeof prisma.courseMember.create>[0]["data"][] = [];
   const toUpdate: { id: string; data: Partial<CourseMember> }[] = [];
@@ -127,6 +151,7 @@ coursesRouter.post("/:courseId/roster", async (req, res) => {
   for (const row of rows) {
     const current = byEmail.get(row.email);
     const numberOwner = row.studentNumber ? byNumber.get(row.studentNumber) : undefined;
+    // The student number is already used by someone with a different email.
     if (numberOwner && numberOwner.email !== row.email) {
       rowErrors.push({ line: row.line, message: `Student number ${row.studentNumber} already belongs to ${numberOwner.email}` });
       continue;
@@ -139,14 +164,18 @@ coursesRouter.post("/:courseId/roster", async (req, res) => {
       leftHanded: row.leftHanded,
     };
     if (!current) {
+      // New to the course: add them as an invited student.
       toCreate.push({ ...fields, courseId, email: row.email, role: "STUDENT", inviteToken: newInviteToken() });
     } else if (current.role !== "STUDENT") {
+      // Don't turn a proctor or instructor into a student by accident.
       rowErrors.push({ line: row.line, message: `${row.email} is already in this course as ${current.role.toLowerCase()}` });
     } else {
+      // Already a student: update their details (name, accessibility, ...).
       toUpdate.push({ id: current.id, data: fields });
     }
   }
 
+  // All-or-nothing: if any write fails, none of the roster changes are saved.
   const created = await prisma.$transaction(async (tx) => {
     for (const u of toUpdate) await tx.courseMember.update({ where: { id: u.id }, data: u.data });
     const result: CourseMember[] = [];
@@ -158,21 +187,25 @@ coursesRouter.post("/:courseId/roster", async (req, res) => {
     created: created.length,
     updated: toUpdate.length,
     errors: rowErrors.sort((a, b) => a.line - b.line),
+    // Invite links for the new students, so the instructor can send them out.
     invites: created.map((m) => ({ email: m.email, inviteUrl: inviteUrl(m.inviteToken!) })),
   });
 });
 
+/** Change a member's role or details. Instructors only. */
 coursesRouter.patch("/:courseId/members/:memberId", async (req, res) => {
   const { courseId, memberId } = req.params;
   await requireCourseRole(currentUser(req).id, courseId, INSTRUCTOR_ONLY);
   const body = updateMemberBody.parse(req.body);
   const member = await prisma.courseMember.findFirst({ where: { id: memberId, courseId } });
   if (!member) throw notFound("Member");
+  // Demoting an instructor is fine unless they're the only one left.
   if (member.role === "INSTRUCTOR" && body.role && body.role !== "INSTRUCTOR") await assertNotLastInstructor(member);
   const updated = await prisma.courseMember.update({ where: { id: memberId }, data: body });
   res.json({ member: memberDto(updated, { includeInvite: true }) });
 });
 
+/** Remove someone from the course. Instructors only. */
 coursesRouter.delete("/:courseId/members/:memberId", async (req, res) => {
   const { courseId, memberId } = req.params;
   await requireCourseRole(currentUser(req).id, courseId, INSTRUCTOR_ONLY);
@@ -194,6 +227,7 @@ coursesRouter.post("/:courseId/members/:memberId/invite", async (req, res) => {
   res.json({ member: memberDto(updated, { includeInvite: true }) });
 });
 
+/** Throw 409 if removing or demoting this instructor would leave the course with none. */
 async function assertNotLastInstructor(member: CourseMember) {
   const others = await prisma.courseMember.count({
     where: { courseId: member.courseId, role: "INSTRUCTOR", status: "ACTIVE", NOT: { id: member.id } },

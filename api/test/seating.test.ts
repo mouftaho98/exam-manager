@@ -1,3 +1,6 @@
+/**
+ * Unit tests for the seat assignment algorithm. No database needed.
+ */
 import { describe, expect, it } from "vitest";
 import { assignSeats, seededRandom, type SeatInput, type StudentInput } from "../src/seating.js";
 
@@ -12,10 +15,12 @@ function room(roomId: string, rowLengths: number[], tag: (row: number, col: numb
   return seats;
 }
 
+/** n students with ids s0, s1, ...; `extra` sets flags for some of them. */
 function students(n: number, extra: (i: number) => Partial<StudentInput> = () => ({})): StudentInput[] {
   return Array.from({ length: n }, (_, i) => ({ id: `s${i}`, needsAccessible: false, leftHanded: false, ...extra(i) }));
 }
 
+/** Count pairs of students sitting next to each other (side by side or front/back). */
 function adjacentPairs(seats: SeatInput[], assignments: Map<string, string>) {
   const byId = new Map(seats.map((s) => [s.id, s]));
   const taken = new Set([...assignments.values()].map((id) => {

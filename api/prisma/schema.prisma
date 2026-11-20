@@ -1,36 +1,47 @@
 // RollCall database schema.
 // Roles are per course: the same user can be an instructor in one course
 // and a student in another, so permissions live on CourseMember, not User.
+//
+// This file is the source of truth for the database. After editing it, run
+// `npm run db:migrate` to create a migration (SQL in prisma/migrations/) and
+// regenerate the typed client used in src/.
 
+// Generates the TypeScript client (`import { PrismaClient } from "@prisma/client"`).
 generator client {
   provider = "prisma-client-js"
 }
 
+// Which database to talk to. The URL comes from the DATABASE_URL env variable.
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
+// What someone can do in a course. Instructors manage everything, proctors
+// run exam day (check-in, moving seats), students see their own seat.
 enum CourseRole {
   INSTRUCTOR
   PROCTOR
   STUDENT
 }
 
+// Whether a course member has linked an account yet.
 enum MemberStatus {
   INVITED // on the roster / invited, has not accepted yet
   ACTIVE // accepted the invite with their account
 }
 
+// A login account. One per person, shared across all their courses.
 model User {
   id           String         @id @default(cuid())
   email        String         @unique // stored lowercase
   name         String
-  passwordHash String
+  passwordHash String // bcrypt hash, never the password itself
   createdAt    DateTime       @default(now())
   memberships  CourseMember[]
 }
 
+// A course, e.g. ECE1779 Fall 2026. Deleting it deletes its members too.
 model Course {
   id        String         @id @default(cuid())
   code      String // e.g. ECE1779
@@ -38,7 +49,7 @@ model Course {
   term      String? // e.g. Fall 2026
   createdAt DateTime       @default(now())
   members   CourseMember[]
-  exams     Exam[]
+  exams     Exam[] // deleted with the course
 }
 
 // A person's place in a course. Created by the instructor (roster upload or
@@ -53,20 +64,21 @@ model CourseMember {
   email           String // stored lowercase; the invite is sent here
   role            CourseRole
   status          MemberStatus     @default(INVITED)
-  inviteToken     String?          @unique
+  inviteToken     String?          @unique // secret in the invite link; cleared once accepted
   studentNumber   String?
   firstName       String?
   lastName        String?
-  needsAccessible Boolean          @default(false)
-  leftHanded      Boolean          @default(false)
+  needsAccessible Boolean          @default(false) // gets an accessible seat at exams
+  leftHanded      Boolean          @default(false) // gets a left-handed desk if there is one
   createdAt       DateTime         @default(now())
   joinedAt        DateTime?
   assignments     SeatAssignment[]
 
+  // A person can only appear once per course, by email, account or student number.
   @@unique([courseId, email])
   @@unique([courseId, userId])
   @@unique([courseId, studentNumber])
-  @@index([userId])
+  @@index([userId]) // fast lookup of "all my courses"
 }
 
 // Rooms are shared across courses so a room is only drawn once.
@@ -74,7 +86,7 @@ model Room {
   id          String     @id @default(cuid())
   name        String // e.g. "BA 1130"
   building    String?
-  createdById String?
+  createdById String? // the user who drew it; they can always edit it
   createdAt   DateTime   @default(now())
   seats       Seat[]
   exams       ExamRoom[]
@@ -90,15 +102,17 @@ model Seat {
   row         Int // 0-based, front of the room first
   col         Int // 0-based position within the row
   label       String // e.g. "C7"
-  accessible  Boolean          @default(false)
-  leftHanded  Boolean          @default(false)
-  broken      Boolean          @default(false)
+  accessible  Boolean          @default(false) // e.g. wheelchair space
+  leftHanded  Boolean          @default(false) // left-handed desk
+  broken      Boolean          @default(false) // never assigned
   assignments SeatAssignment[]
 
+  // No two seats in the same spot, and seat labels are unique within a room.
   @@unique([roomId, row, col])
   @@unique([roomId, label])
 }
 
+// One sitting of an exam for a course, e.g. the midterm. Can use several rooms.
 model Exam {
   id                 String           @id @default(cuid())
   courseId           String
@@ -106,12 +120,15 @@ model Exam {
   title              String
   startsAt           DateTime
   durationMinutes    Int
+  // When seats were last generated; null until the first time.
   createdAt          DateTime         @default(now())
   seatingGeneratedAt DateTime?
   rooms              ExamRoom[]
   assignments        SeatAssignment[]
 }
 
+// Which rooms an exam uses (many-to-many join table).
+// A room can't be deleted while an exam uses it (onDelete: Restrict).
 model ExamRoom {
   examId String
   exam   Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
@@ -132,10 +149,12 @@ model SeatAssignment {
   seatId       String
   seat         Seat         @relation(fields: [seatId], references: [id], onDelete: Restrict)
   roomId       String // copy of seat.roomId, for fast per-room queries
-  checkinCode  String
+  checkinCode  String // 6 characters, kept when seating is regenerated
   manual       Boolean      @default(false) // true when moved by staff
   updatedAt    DateTime     @updatedAt
 
+  // The database itself guarantees: one seat per student, one student per
+  // seat, and no two students with the same code, all per exam.
   @@unique([examId, memberId])
   @@unique([examId, seatId])
   @@unique([examId, checkinCode])
