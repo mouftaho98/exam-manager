@@ -1,6 +1,6 @@
 # RollCall API
 
-Node 22 + TypeScript, Express 5, Prisma (PostgreSQL).
+Node 22 + TypeScript, Express 5, Prisma (PostgreSQL), Socket.IO with the Redis adapter.
 
 ## Run it
 
@@ -42,6 +42,7 @@ Integration tests use `TEST_DATABASE_URL` (default `postgresql://exam:exam@local
 |---|---|---|
 | `DATABASE_URL` | — | required |
 | `JWT_SECRET` | dev value | required when `NODE_ENV=production` |
+| `REDIS_URL` | unset | set it whenever more than one API pod runs, or live updates only reach clients on the same pod |
 | `PORT` | 3000 | |
 | `WEB_URL` | `http://localhost:5173` | used to build invite links (`<WEB_URL>/invite/<token>`) |
 | `CORS_ORIGIN` | `*` | comma-separated origins |
@@ -52,6 +53,7 @@ The container runs `prisma migrate deploy` before starting, so a new image appli
 
 - Liveness probe: `GET /health`. Readiness probe: `GET /ready` (checks the database).
 - The process shuts down cleanly on `SIGTERM`.
+- Run several replicas with `REDIS_URL` set. Socket.IO clients must use `transports: ["websocket"]`; then no sticky sessions are needed behind the load balancer.
 
 ## Concepts
 
@@ -69,7 +71,7 @@ The container runs `prisma migrate deploy` before starting, so a new image appli
 ## Errors
 
 Every error looks like `{ "error": { "code": "...", "message": "...", "details": ... } }`.
-Codes to handle in the UI: `unauthorized`, `forbidden`, `not_found`, `validation_error`, `email_taken`, `instructor_not_approved`, `already_instructor`, `course_exists`, `offering_exists`, `already_member`, `last_instructor`, `seat_taken`, `room_in_use`.
+Codes to handle in the UI: `unauthorized`, `forbidden`, `not_found`, `validation_error`, `email_taken`, `instructor_not_approved`, `already_instructor`, `course_exists`, `offering_exists`, `already_member`, `last_instructor`, `seat_taken`, `room_in_use`, `wrong_room`, `unknown_code`, `no_seat`, `checkin_started`.
 
 ## Endpoints
 
@@ -83,7 +85,7 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 | GET | `/me` | signed in | user (name, student number, accessibility) + every offering with my role |
 | PATCH | `/me` | signed in | `{ firstName?, lastName?, needsAccessible?, leftHanded? }` |
 | POST | `/me/instructor-request` | signed in | ask for instructor access (status becomes `PENDING`) |
-| GET | `/me/exams` | signed in | my exams as a student: offering, seat, room, `checkinCode` |
+| GET | `/me/exams` | signed in | my exams as a student: offering, seat, room, `checkinCode`, `checkedInAt` |
 
 ### Invites
 | Method | Path | Who | Notes |
@@ -135,7 +137,27 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 | GET | `/exams/:id` | member | staff get counts; students get `mySeat` (code, seat and room map) |
 | PATCH / DELETE | `/exams/:id` | instructor | |
 | PUT | `/exams/:id/rooms` | instructor | `{ roomIds }` |
-| POST | `/exams/:id/seating/generate` | instructor | `{ seed? }` → `{ assigned, unassigned[], warnings[], seed }` |
-| GET | `/exams/:id/seating` | staff | every seat with its student, plus unseated students |
+| POST | `/exams/:id/seating/generate` | instructor | `{ seed? }` → `{ assigned, unassigned[], warnings[], seed }`. Refused once check-in starts |
+| GET | `/exams/:id/seating` | staff | every seat with its student and `checkedInAt`, plus unseated students |
 | PATCH | `/exams/:id/assignments/:studentId` | instructor or proctor | `{ seatId, swap? }`; 409 `seat_taken` unless `swap: true` |
 | DELETE | `/exams/:id/assignments/:studentId` | instructor or proctor | unseat a student |
+
+### Check-in
+| Method | Path | Who | Body / notes |
+|---|---|---|---|
+| POST | `/exams/:id/checkins` | staff | `{ roomId, code }` or `{ roomId, studentId }`. 201 `checked_in`, or 200 `already_checked_in` on a retry. 409 `wrong_room` says where the student belongs (`details.room`, `details.seat`) and records nothing |
+| DELETE | `/exams/:id/checkins/:studentId` | staff | undo a check-in |
+| GET | `/exams/:id/attendance` | staff | totals, per-room counts, list of missing students |
+
+## Live updates (Socket.IO)
+
+```js
+const socket = io(API_URL, { auth: { token }, transports: ["websocket"] });
+socket.emit("exam:join", { examId }, (res) => { /* { ok: true } or { ok: false, error } */ });
+socket.on("checkin:created", (e) => {});   // { examId, studentId, roomId, seatId, seatLabel, name, checkedInAt }
+socket.on("checkin:removed", (e) => {});   // { examId, studentId, roomId }
+socket.on("seat:moved", (e) => {});        // { examId, moves: [{ studentId, seatId, roomId }] } (seatId null = unseated)
+socket.on("seating:generated", (e) => {}); // { examId, assigned, unassigned } -> refetch /seating
+```
+
+Only the exam's instructors and proctors can join. Events come from whichever pod handled the request; Redis relays them to clients on every pod.

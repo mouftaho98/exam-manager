@@ -13,7 +13,7 @@ export const api = () => request(app);
 /** Empty every table, so each test file starts from a clean database. */
 export async function resetDb() {
   await prisma.$executeRawUnsafe(
-    `TRUNCATE "SeatAssignment", "ExamRoom", "Exam", "Seat", "Room", "OfferingMember", "Offering", "Course", "User" CASCADE`,
+    `TRUNCATE "CheckIn", "SeatAssignment", "ExamRoom", "Exam", "Seat", "Room", "OfferingMember", "Offering", "Course", "User" CASCADE`,
   );
 }
 

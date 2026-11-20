@@ -114,6 +114,7 @@ model OfferingMember {
   createdAt   DateTime     @default(now())
   joinedAt    DateTime?
   assignments SeatAssignment[]
+  checkIns    CheckIn[]
 
   // A person can only be in an offering once.
   @@unique([offeringId, userId])
@@ -164,6 +165,7 @@ model Exam {
   seatingGeneratedAt DateTime?
   rooms              ExamRoom[]
   assignments        SeatAssignment[]
+  checkIns           CheckIn[]
 }
 
 // Which rooms an exam uses (many-to-many join table).
@@ -197,5 +199,23 @@ model SeatAssignment {
   @@unique([examId, studentId])
   @@unique([examId, seatId])
   @@unique([examId, checkinCode])
+  @@index([examId, roomId])
+}
+
+// At most one check-in per student per exam, enforced by the database so
+// retries and simultaneous scans can never double count.
+model CheckIn {
+  id            String       @id @default(cuid())
+  examId        String
+  exam          Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId     String // the student's OfferingMember id
+  student       OfferingMember @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  roomId        String // room where the student was scanned in
+  checkedInById String // user id of the proctor / instructor
+  checkedInAt   DateTime     @default(now())
+
+  // This unique rule is what makes check-in safe to retry.
+
+  @@unique([examId, studentId])
   @@index([examId, roomId])
 }

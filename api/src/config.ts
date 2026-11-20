@@ -24,6 +24,8 @@ export const config = {
   jwtSecret: required("JWT_SECRET", "dev-only-secret"),
   // How long a login lasts before the user has to sign in again, e.g. "7d" or "12h".
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
+  // Redis is optional locally; without it live updates only reach clients on this instance.
+  redisUrl: process.env.REDIS_URL,
   // Comma-separated list of allowed browser origins, or "*".
   corsOrigin: process.env.CORS_ORIGIN ?? "*",
   // Base URL of the web app, used to build invite links.

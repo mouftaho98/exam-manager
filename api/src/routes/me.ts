@@ -58,12 +58,15 @@ meRouter.get("/exams", async (req, res) => {
     include: {
       offering: { include: { course: true, exams: { orderBy: { startsAt: "asc" } } } },
       assignments: { include: { seat: { include: { room: true } } } },
+      checkIns: true,
     },
   });
   const exams = memberships.flatMap((m) =>
     m.offering.exams.map((exam) => {
       // My seat for this exam, if seating has been generated.
       const a = m.assignments.find((x) => x.examId === exam.id);
+      // My check-in for this exam, if I've been checked in.
+      const c = m.checkIns.find((x) => x.examId === exam.id);
       return {
         id: exam.id,
         title: exam.title,
@@ -73,6 +76,7 @@ meRouter.get("/exams", async (req, res) => {
         seat: a ? seatDto(a.seat) : null,
         room: a ? { id: a.seat.room.id, name: a.seat.room.name, building: a.seat.room.building } : null,
         checkinCode: a?.checkinCode ?? null,
+        checkedInAt: c?.checkedInAt ?? null,
       };
     }),
   );
