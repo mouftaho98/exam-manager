@@ -21,6 +21,9 @@ const registerBody = z.object({
   lastName: z.string().trim().min(1).max(100),
   // "I'm an instructor": asks for instructor access, which an admin must approve.
   wantsToTeach: z.boolean().optional(),
+  // Exam seating needs. Students can change these later with PATCH /me.
+  needsAccessible: z.boolean().optional(),
+  leftHanded: z.boolean().optional(),
 });
 
 const loginBody = z.object({
@@ -33,7 +36,7 @@ const loginBody = z.object({
  *
  * If an instructor already added this email (roster or invite), a User with no
  * password exists; registering takes over that record, so the person keeps
- * their student number and accessibility settings.
+ * their student number and their place in those offerings.
  */
 authRouter.post("/register", async (req, res) => {
   const body = registerBody.parse(req.body);
@@ -45,6 +48,8 @@ authRouter.post("/register", async (req, res) => {
     firstName: body.firstName,
     lastName: body.lastName,
     passwordHash: await bcrypt.hash(body.password, 10),
+    needsAccessible: body.needsAccessible ?? false,
+    leftHanded: body.leftHanded ?? false,
     ...(body.wantsToTeach ? { instructorStatus: "PENDING" as const } : {}),
   };
   const user = existing
