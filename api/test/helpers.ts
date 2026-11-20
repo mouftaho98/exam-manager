@@ -13,13 +13,18 @@ export const api = () => request(app);
 /** Empty every table, so each test file starts from a clean database. */
 export async function resetDb() {
   await prisma.$executeRawUnsafe(
-    `TRUNCATE "CourseMember", "Course", "User" CASCADE`,
+    `TRUNCATE "OfferingMember", "Offering", "Course", "User" CASCADE`,
   );
 }
 
-/** Create an account through the API and return its login token. */
+/**
+ * Create an account through the API and return its login token.
+ * `name` is "First Last"; the last name defaults to "Test".
+ */
 export async function register(email: string, name = email.split("@")[0]) {
-  const res = await api().post("/auth/register").send({ email, password: "password123", name });
+  const [firstName, ...rest] = name.split(" ");
+  const lastName = rest.join(" ") || "Test";
+  const res = await api().post("/auth/register").send({ email, password: "password123", firstName, lastName });
   if (res.status !== 201) throw new Error(`register failed: ${res.status} ${JSON.stringify(res.body)}`);
   return { token: res.body.token as string, user: res.body.user as { id: string; email: string } };
 }

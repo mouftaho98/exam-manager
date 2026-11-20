@@ -15,6 +15,7 @@ import { authRouter } from "./routes/auth.js";
 import { meRouter } from "./routes/me.js";
 import { invitesRouter } from "./routes/invites.js";
 import { coursesRouter } from "./routes/courses.js";
+import { offeringsRouter } from "./routes/offerings.js";
 
 /** Create a new, fully configured Express app. */
 export function createApp() {
@@ -52,7 +53,8 @@ export function createApp() {
   app.use("/auth", authRouter); // register and log in (public)
   app.use("/invites", invitesRouter); // GET is public; accept requires auth
   app.use("/me", requireAuth, meRouter); // the signed-in user's own data
-  app.use("/courses", requireAuth, coursesRouter); // courses and their members
+  app.use("/courses", requireAuth, coursesRouter); // the course catalog
+  app.use("/offerings", requireAuth, offeringsRouter); // one term of a course, and its members
 
   // Anything that didn't match a route above is a 404.
   app.use((_req, _res, next) => next(notFound("Route")));
