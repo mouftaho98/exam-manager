@@ -1,0 +1,16 @@
+// RollCall database schema. Tables are added in later changes.
+//
+// This file is the source of truth for the database. After editing it, run
+// `npm run db:migrate` to create a migration (SQL in prisma/migrations/) and
+// regenerate the typed client used in src/.
+
+// Generates the TypeScript client (`import { PrismaClient } from "@prisma/client"`).
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Which database to talk to. The URL comes from the DATABASE_URL env variable.
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

@@ -1,0 +1,7 @@
+# Files Docker should not copy into the build: they're rebuilt inside
+# the image, aren't needed to run, or are secrets.
+node_modules
+dist
+coverage
+.env
+test
