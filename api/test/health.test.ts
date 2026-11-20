@@ -1,8 +1,13 @@
+/**
+ * Tests for the health endpoints and the app-wide error handling
+ * (404s for unknown routes, 400 for broken JSON).
+ */
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
 import { api } from "./helpers.js";
 
 describe("health checks", () => {
+  // Close the DB pool so Vitest can exit.
   afterAll(() => prisma.$disconnect());
 
   it("GET /health says the process is up", async () => {

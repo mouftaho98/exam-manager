@@ -1,3 +1,7 @@
+/**
+ * Tests for live updates: starts a real server on a random port and connects
+ * real Socket.IO clients to it.
+ */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -17,11 +21,13 @@ describe("live updates over Socket.IO", () => {
   let roomId: string;
   const sockets: Socket[] = [];
 
+  // Connect a socket client as the owner of `token`.
   const open = (token: string) => {
     const s = connect(url, { auth: { token }, transports: ["websocket"], reconnection: false });
     sockets.push(s);
     return s;
   };
+  // Ask to join an exam's channel and wait for the server's reply.
   const join = (s: Socket, id: string) =>
     new Promise<{ ok: boolean; error?: string }>((resolve) => s.emit("exam:join", { examId: id }, resolve));
 
@@ -29,10 +35,11 @@ describe("live updates over Socket.IO", () => {
     await resetDb();
     server = createServer(app);
     await attachRealtime(server);
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+    await new Promise<void>((resolve) => server.listen(0, resolve)); // port 0 = any free port
     url = `http://localhost:${(server.address() as AddressInfo).port}`;
     const http = () => request(server);
 
+    // Set up a course with a proctor, a student and a seated exam.
     const prof = await register("prof@uni.ca");
     const course = await http().post("/courses").set(auth(prof.token)).send({ code: "C1", name: "Course" });
     const courseId = course.body.course.id;

@@ -1,3 +1,10 @@
+/**
+ * Rooms and their seat layouts (mounted at /rooms, behind requireAuth).
+ *
+ * Rooms aren't tied to a course: any signed-in user can create one, and every
+ * course can use it for exams. Only the creator, or staff of a course with an
+ * exam in the room, can change it.
+ */
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
@@ -8,6 +15,9 @@ import { seatDto, seatRows } from "../serializers.js";
 
 export const roomsRouter = Router();
 
+// ---- Request body shapes ----
+
+// One seat in a row. `col` is its position; leave gaps for aisles.
 const seatSpec = z.object({
   col: z.number().int().min(0).max(500),
   label: z.string().trim().min(1).max(20).optional(),
@@ -30,6 +40,7 @@ const roomBody = z.object({
   rows: z.array(rowSpec).min(1).max(200),
 });
 
+// Changing the flags on one seat.
 const seatPatch = z.object({
   accessible: z.boolean().optional(),
   leftHanded: z.boolean().optional(),
@@ -47,11 +58,16 @@ export function rowLabel(index: number): string {
   return label;
 }
 
+/**
+ * Turn the rows from the request into seat records. Labels default to row
+ * letter + position ("C7"). Throws 400 for duplicate positions or labels.
+ */
 function buildSeats(rows: z.infer<typeof rowSpec>[]) {
   const seats: { row: number; col: number; label: string; accessible: boolean; leftHanded: boolean; broken: boolean }[] = [];
   const labels = new Set<string>();
   rows.forEach((r, row) => {
     const prefix = r.label ?? rowLabel(row);
+    // "seats: 4" is shorthand for 4 seats at cols 0, 1, 2, 3.
     const specs = typeof r.seats === "number" ? Array.from({ length: r.seats }, (_, col) => ({ col })) : r.seats;
     const cols = new Set<number>();
     for (const s of specs as z.infer<typeof seatSpec>[]) {
@@ -73,6 +89,7 @@ function buildSeats(rows: z.infer<typeof rowSpec>[]) {
   return seats;
 }
 
+/** A room as the API returns it: capacity (usable seats) and seats grouped into rows. */
 function roomDto(room: { id: string; name: string; building: string | null; createdById: string | null }, seats: Parameters<typeof seatRows>[0]) {
   return {
     id: room.id,
@@ -99,6 +116,9 @@ async function assertCanEditRoom(userId: string, roomId: string) {
   return room;
 }
 
+// ---- Routes ----
+
+/** Create a room with its whole seat layout. */
 roomsRouter.post("/", async (req, res) => {
   const body = roomBody.parse(req.body);
   const seats = buildSeats(body.rows);
@@ -109,11 +129,13 @@ roomsRouter.post("/", async (req, res) => {
   res.status(201).json({ room: roomDto(room, room.seats) });
 });
 
+/** List rooms, optionally searching name or building with ?q=. */
 roomsRouter.get("/", async (req, res) => {
   const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
   const rooms = await prisma.room.findMany({
     where: q ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { building: { contains: q, mode: "insensitive" } }] } : {},
     orderBy: [{ building: "asc" }, { name: "asc" }],
+    // Count usable seats in the database instead of loading every seat.
     include: { _count: { select: { seats: { where: { broken: false } } } } },
   });
   res.json({
@@ -121,6 +143,7 @@ roomsRouter.get("/", async (req, res) => {
   });
 });
 
+/** One room with its full seat layout. */
 roomsRouter.get("/:roomId", async (req, res) => {
   const room = await prisma.room.findUnique({ where: { id: req.params.roomId }, include: { seats: true } });
   if (!room) throw notFound("Room");
@@ -136,6 +159,7 @@ roomsRouter.put("/:roomId", async (req, res) => {
   if (inUse > 0) {
     throw conflict("room_in_use", "Students are already seated in this room; edit individual seats instead");
   }
+  // Delete the old seats and create the new ones together, so a failure can't leave half a room.
   const updated = await prisma.$transaction(async (tx) => {
     await tx.seat.deleteMany({ where: { roomId: room.id } });
     return tx.room.update({

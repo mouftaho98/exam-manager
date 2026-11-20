@@ -1,3 +1,6 @@
+/**
+ * Integration tests for exam-day check-in and attendance.
+ */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
 import { api, auth, resetDb, seedCourse, seedExam } from "./helpers.js";

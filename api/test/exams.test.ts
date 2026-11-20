@@ -1,3 +1,6 @@
+/**
+ * Integration tests for rooms, exams, seat generation and manual moves.
+ */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
 import { api, auth, resetDb, seedCourse } from "./helpers.js";
@@ -23,6 +26,7 @@ describe("rooms, exams and seating", () => {
   let examId: string;
   let anaCode: string;
 
+  // Every seat across the exam's rooms, from the staff seating map.
   const allSeats = async (): Promise<SeatView[]> => {
     const res = await api().get(`/exams/${examId}/seating`).set(auth(proctor.token));
     return res.body.rooms.flatMap((r: { rows: { seats: SeatView[] }[] }) => r.rows.flatMap((row) => row.seats));

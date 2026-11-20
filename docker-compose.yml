@@ -3,6 +3,7 @@
 #   docker compose up --build
 # API on http://localhost:3000 (liveness: /health, readiness: /ready)
 services:
+  # The API, built from api/Dockerfile. Waits for Postgres to be healthy first.
   api:
     build: ./api
     env_file: .env
@@ -14,6 +15,7 @@ services:
       redis:
         condition: service_started
 
+  # Database. Data is kept in the pgdata volume between restarts.
   postgres:
     image: postgres:16
     env_file: .env
@@ -24,6 +26,7 @@ services:
       interval: 5s
       retries: 10
 
+  # Shares live-update events between API replicas.
   redis:
     image: redis:7
 

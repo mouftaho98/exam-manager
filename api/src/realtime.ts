@@ -1,3 +1,6 @@
+/**
+ * Live updates for exam day, over Socket.IO. See the notes below for the protocol.
+ */
 import type { Server as HttpServer } from "node:http";
 import { Server } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
@@ -25,23 +28,33 @@ import { STAFF } from "./access.js";
 //   seat:moved       { examId, moves: [{ memberId, seatId, roomId }] }
 //   seating:generated { examId, assigned, unassigned }
 
+// The Socket.IO server. Undefined until attachRealtime runs (e.g. in most tests),
+// in which case publish() does nothing.
 let io: Server | undefined;
 
 export type ExamEvent = "checkin:created" | "checkin:removed" | "seat:moved" | "seating:generated";
 
+/** Name of the Socket.IO room for one exam. */
 export const examChannel = (examId: string) => `exam:${examId}`;
 
+/**
+ * Send an event to everyone watching an exam. Called by the routes after a
+ * change is saved. With Redis, this reaches watchers on every API pod.
+ */
 export function publish(examId: string, event: ExamEvent, payload: Record<string, unknown>) {
   io?.to(examChannel(examId)).emit(event, { examId, ...payload });
 }
 
+// What clients send with "exam:join" / "exam:leave".
 const joinBody = z.object({ examId: z.string().min(1) });
 
+/** Start Socket.IO on the given HTTP server (same port as the API). */
 export async function attachRealtime(server: HttpServer): Promise<Server> {
   io = new Server(server, {
     cors: { origin: config.corsOrigin === "*" ? true : config.corsOrigin.split(",") },
   });
 
+  // Redis adapter: one connection publishes events, one subscribes to events from other pods.
   if (config.redisUrl) {
     const pub = createClient({ url: config.redisUrl });
     const sub = pub.duplicate();
@@ -52,6 +65,7 @@ export async function attachRealtime(server: HttpServer): Promise<Server> {
     console.log("Socket.IO using Redis adapter");
   }
 
+  // Every connection must send a valid login token, checked once when it connects.
   io.use((socket, next) => {
     try {
       const token = socket.handshake.auth?.token;
@@ -64,10 +78,12 @@ export async function attachRealtime(server: HttpServer): Promise<Server> {
   });
 
   io.on("connection", (socket) => {
+    // Join an exam's channel. Replies through the ack callback with { ok } so the client knows if it worked.
     socket.on("exam:join", async (raw, ack?: (res: unknown) => void) => {
       const reply = typeof ack === "function" ? ack : () => {};
       try {
         const { examId } = joinBody.parse(raw);
+        // Only active staff of the exam's course may listen.
         const exam = await prisma.exam.findUnique({ where: { id: examId }, select: { courseId: true } });
         const member = exam
           ? await prisma.courseMember.findFirst({
@@ -82,6 +98,7 @@ export async function attachRealtime(server: HttpServer): Promise<Server> {
       }
     });
 
+    // Stop getting events for an exam (e.g. the proctor switched exams).
     socket.on("exam:leave", async (raw) => {
       const parsed = joinBody.safeParse(raw);
       if (parsed.success) await socket.leave(examChannel(parsed.data.examId));
@@ -91,6 +108,7 @@ export async function attachRealtime(server: HttpServer): Promise<Server> {
   return io;
 }
 
+/** Close all sockets and the HTTP server. Used on shutdown and in tests. */
 export async function closeRealtime() {
   await io?.close();
   io = undefined;

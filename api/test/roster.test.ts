@@ -1,3 +1,6 @@
+/**
+ * Unit tests for the roster CSV parser. No database needed.
+ */
 import { describe, expect, it } from "vitest";
 import { parseRoster } from "../src/roster.js";
 
