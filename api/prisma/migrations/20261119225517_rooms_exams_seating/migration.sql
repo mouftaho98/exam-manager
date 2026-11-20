@@ -48,7 +48,7 @@ CREATE TABLE "ExamRoom" (
 CREATE TABLE "SeatAssignment" (
     "id" TEXT NOT NULL,
     "examId" TEXT NOT NULL,
-    "memberId" TEXT NOT NULL,
+    "studentId" TEXT NOT NULL,
     "seatId" TEXT NOT NULL,
     "roomId" TEXT NOT NULL,
     "checkinCode" TEXT NOT NULL,
@@ -68,7 +68,7 @@ CREATE UNIQUE INDEX "Seat_roomId_label_key" ON "Seat"("roomId", "label");
 CREATE INDEX "SeatAssignment_examId_roomId_idx" ON "SeatAssignment"("examId", "roomId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "SeatAssignment_examId_memberId_key" ON "SeatAssignment"("examId", "memberId");
+CREATE UNIQUE INDEX "SeatAssignment_examId_studentId_key" ON "SeatAssignment"("examId", "studentId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "SeatAssignment_examId_seatId_key" ON "SeatAssignment"("examId", "seatId");
@@ -92,7 +92,7 @@ ALTER TABLE "ExamRoom" ADD CONSTRAINT "ExamRoom_roomId_fkey" FOREIGN KEY ("roomI
 ALTER TABLE "SeatAssignment" ADD CONSTRAINT "SeatAssignment_examId_fkey" FOREIGN KEY ("examId") REFERENCES "Exam"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "SeatAssignment" ADD CONSTRAINT "SeatAssignment_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "OfferingMember"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "SeatAssignment" ADD CONSTRAINT "SeatAssignment_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "OfferingMember"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "SeatAssignment" ADD CONSTRAINT "SeatAssignment_seatId_fkey" FOREIGN KEY ("seatId") REFERENCES "Seat"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

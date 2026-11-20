@@ -183,8 +183,8 @@ model SeatAssignment {
   id           String       @id @default(cuid())
   examId       String
   exam         Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
-  memberId     String
-  member       OfferingMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  studentId    String // the student's OfferingMember id
+  student      OfferingMember @relation(fields: [studentId], references: [id], onDelete: Cascade)
   seatId       String
   seat         Seat         @relation(fields: [seatId], references: [id], onDelete: Restrict)
   roomId       String // copy of seat.roomId, for fast per-room queries
@@ -194,7 +194,7 @@ model SeatAssignment {
 
   // The database itself guarantees: one seat per student, one student per
   // seat, and no two students with the same code, all per exam.
-  @@unique([examId, memberId])
+  @@unique([examId, studentId])
   @@unique([examId, seatId])
   @@unique([examId, checkinCode])
   @@index([examId, roomId])

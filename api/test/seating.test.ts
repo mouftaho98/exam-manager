@@ -92,6 +92,32 @@ describe("assignSeats", () => {
     expect(result.warnings.join(" ")).toMatch(/accessible/);
   });
 
+  it("still seats everyone when a room has no left-handed or accessible seats", () => {
+    const seats = room("r", [8, 8]); // 16 seats, no special seats at all
+    const list = students(8, (i) => ({ leftHanded: i < 3, needsAccessible: i === 3 }));
+    const result = assignSeats(seats, list, seededRandom(10));
+    expect(result.assignments.size).toBe(8);
+    expect(result.unassigned).toEqual([]);
+    expect(result.warnings.join(" ")).toMatch(/left-handed/);
+    expect(result.warnings.join(" ")).toMatch(/accessible/);
+    expect(adjacentPairs(seats, result.assignments)).toBe(0);
+  });
+
+  it("uses the left-handed seats there are, then falls back", () => {
+    const seats = room("r", [6, 6], (row, col) => ({ leftHanded: row === 0 && col === 0 })); // just one
+    const list = students(4, (i) => ({ leftHanded: i < 3 }));
+    const result = assignSeats(seats, list, seededRandom(11));
+    expect(result.assignments.size).toBe(4);
+    const onLeftySeat = ["s0", "s1", "s2"].filter((id) => result.assignments.get(id) === "r-0-0");
+    expect(onLeftySeat).toHaveLength(1);
+  });
+
+  it("doesn't crash with no usable seats", () => {
+    expect(assignSeats([], students(3), seededRandom(12)).unassigned).toHaveLength(3);
+    const allBroken = room("r", [3], () => ({ broken: true }));
+    expect(assignSeats(allBroken, students(2, () => ({ leftHanded: true })), seededRandom(13)).unassigned).toHaveLength(2);
+  });
+
   it("spreads students over several rooms", () => {
     const seats = [...room("a", [6, 6]), ...room("b", [6, 6])];
     const result = assignSeats(seats, students(12), seededRandom(8));

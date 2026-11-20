@@ -11,7 +11,7 @@ type SeatView = {
   broken: boolean;
   accessible: boolean;
   leftHanded: boolean;
-  student: { memberId: string; email: string } | null;
+  student: { studentId: string; email: string } | null;
 };
 
 // Rooms, exams, seat generation and manual moves, in order. Each test builds on the last.
@@ -61,6 +61,12 @@ describe("rooms, exams and seating", () => {
 
     const b = await api().post("/rooms").set(auth(instructor.token)).send({ name: "BA 1160", rows: [{ seats: [{ col: 0, leftHanded: true }, { col: 1 }, { col: 2 }] }, { seats: 3 }] });
     roomB = b.body.room;
+  });
+
+  it("only lets instructors and proctors create rooms", async () => {
+    const res = await api().post("/rooms").set(auth(student.token)).send({ name: "Nope", rows: [{ seats: 2 }] });
+    expect(res.status).toBe(403);
+    expect((await api().post("/rooms").set(auth(proctor.token)).send({ name: "TA room", rows: [{ seats: 2 }] })).status).toBe(201);
   });
 
   it("rejects a room with two seats in the same spot", async () => {
@@ -118,7 +124,7 @@ describe("rooms, exams and seating", () => {
   it("lets staff move and swap students", async () => {
     const seats = await allSeats();
     const emptySeat = seats.find((s) => !s.broken && !s.student)!;
-    const otherSeat = seats.find((s) => s.student && s.student.memberId !== anaMemberId)!;
+    const otherSeat = seats.find((s) => s.student && s.student.studentId !== anaMemberId)!;
 
     const move = await api().patch(`/exams/${examId}/assignments/${anaMemberId}`).set(auth(proctor.token)).send({ seatId: emptySeat.id });
     expect(move.status).toBe(200);
@@ -130,13 +136,13 @@ describe("rooms, exams and seating", () => {
     const swap = await api().patch(`/exams/${examId}/assignments/${anaMemberId}`).set(auth(proctor.token)).send({ seatId: otherSeat.id, swap: true });
     expect(swap.status).toBe(200);
     expect(swap.body.moves).toHaveLength(2);
-    const otherNow = await prisma.seatAssignment.findUnique({ where: { examId_memberId: { examId, memberId: otherSeat.student!.memberId } } });
+    const otherNow = await prisma.seatAssignment.findUnique({ where: { examId_studentId: { examId, studentId: otherSeat.student!.studentId } } });
     expect(otherNow?.seatId).toBe(emptySeat.id);
 
     const broken = seats.find((s) => s.broken)!;
     expect((await api().patch(`/exams/${examId}/assignments/${anaMemberId}`).set(auth(proctor.token)).send({ seatId: broken.id })).status).toBe(400);
 
-    const ana = await prisma.seatAssignment.findUniqueOrThrow({ where: { examId_memberId: { examId, memberId: anaMemberId } } });
+    const ana = await prisma.seatAssignment.findUniqueOrThrow({ where: { examId_studentId: { examId, studentId: anaMemberId } } });
     expect(ana.checkinCode).toBe(anaCode); // moving doesn't change the code
     expect(ana.manual).toBe(true);
   });
@@ -144,7 +150,7 @@ describe("rooms, exams and seating", () => {
   it("can unseat a student and seat them again by hand", async () => {
     expect((await api().delete(`/exams/${examId}/assignments/${anaMemberId}`).set(auth(proctor.token))).status).toBe(204);
     const seating = await api().get(`/exams/${examId}/seating`).set(auth(proctor.token));
-    expect(seating.body.unassigned.map((s: { memberId: string }) => s.memberId)).toEqual([anaMemberId]);
+    expect(seating.body.unassigned.map((s: { studentId: string }) => s.studentId)).toEqual([anaMemberId]);
 
     const free = (await allSeats()).find((s) => !s.broken && !s.student)!;
     const res = await api().patch(`/exams/${examId}/assignments/${anaMemberId}`).set(auth(proctor.token)).send({ seatId: free.id });

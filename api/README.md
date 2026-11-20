@@ -62,7 +62,7 @@ The container runs `prisma migrate deploy` before starting, so a new image appli
 - **People live on `User`.** Name, student number and accessibility settings (`needsAccessible`, `leftHanded`) are stored once per person and shared by every offering they're in. **Students set their own accessibility and left-handed needs** at sign-up or with `PATCH /me`; instructors can't, since they don't have that information.
 - **Invites.** Uploading a roster or adding a member creates the person's `User` if they don't have one yet (with no password), plus an `OfferingMember` with an invite link. The person registers or signs in *with the invited email*, then accepts. Registering with that email takes over the existing record, so roster details carry over. Until they accept, their status is `INVITED`.
 - **Rooms** are shared between courses. Each row can have a different length, and gaps in `col` are aisles.
-- **Seating** places students who need an accessible seat first, then left-handed students, then everyone else at random. It keeps one empty seat between students while the room allows it, and never uses broken seats. Staff can move or swap students afterwards. Invited students who haven't accepted yet still get a seat. Accessibility and left-handed needs come from each student's own profile.
+- **Seating** places students who need an accessible seat first, then left-handed students, then everyone else at random. It keeps one empty seat between students while the room allows it, and never uses broken seats. Instructors and proctors can both move, swap or unseat students afterwards. Accessible and left-handed seats are a preference: if a room has none or too few, those students get ordinary seats and the result includes a warning. Invited students who haven't accepted yet still get a seat. Accessibility and left-handed needs come from each student's own profile.
 - **Check-in codes.** Each student gets one 6-character code per exam; the QR code just encodes it. The code survives regenerating the seating and manual moves.
 - **What a roster can change.** For a person who already exists, the student number is updated. Their name is only updated if they haven't registered yet.
 
@@ -121,7 +121,7 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 ### Rooms
 | Method | Path | Who | Body / notes |
 |---|---|---|---|
-| POST | `/rooms` | signed in | `{ name, building?, rows: [{ label?, seats: 12 }]` or `seats: [{ col, label?, accessible?, leftHanded?, broken? }] }`. Seat labels default to row letter + (col+1), e.g. `C7` |
+| POST | `/rooms` | instructors and proctors | `{ name, building?, rows: [{ label?, seats: 12 }]` or `seats: [{ col, label?, accessible?, leftHanded?, broken? }] }`. Seat labels default to row letter + (col+1), e.g. `C7` |
 | GET | `/rooms?q=` | signed in | list with capacity |
 | GET | `/rooms/:id` | signed in | layout as `rows[].seats[]` |
 | PUT | `/rooms/:id` | room creator or exam staff | replace the layout; refused while students are seated there |
@@ -137,5 +137,5 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 | PUT | `/exams/:id/rooms` | instructor | `{ roomIds }` |
 | POST | `/exams/:id/seating/generate` | instructor | `{ seed? }` → `{ assigned, unassigned[], warnings[], seed }` |
 | GET | `/exams/:id/seating` | staff | every seat with its student, plus unseated students |
-| PATCH | `/exams/:id/assignments/:memberId` | staff | `{ seatId, swap? }`; 409 `seat_taken` unless `swap: true` |
-| DELETE | `/exams/:id/assignments/:memberId` | staff | unseat a student |
+| PATCH | `/exams/:id/assignments/:studentId` | instructor or proctor | `{ seatId, swap? }`; 409 `seat_taken` unless `swap: true` |
+| DELETE | `/exams/:id/assignments/:studentId` | instructor or proctor | unseat a student |
