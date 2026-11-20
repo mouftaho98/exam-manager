@@ -5,6 +5,9 @@ CREATE TYPE "Role" AS ENUM ('INSTRUCTOR', 'PROCTOR', 'STUDENT');
 CREATE TYPE "MemberStatus" AS ENUM ('INVITED', 'ACTIVE');
 
 -- CreateEnum
+CREATE TYPE "InstructorStatus" AS ENUM ('NONE', 'PENDING', 'APPROVED', 'REJECTED');
+
+-- CreateEnum
 CREATE TYPE "Semester" AS ENUM ('WINTER', 'SUMMER', 'FALL');
 
 -- CreateTable
@@ -17,6 +20,8 @@ CREATE TABLE "User" (
     "studentNumber" TEXT,
     "needsAccessible" BOOLEAN NOT NULL DEFAULT false,
     "leftHanded" BOOLEAN NOT NULL DEFAULT false,
+    "instructorStatus" "InstructorStatus" NOT NULL DEFAULT 'NONE',
+    "isAdmin" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")

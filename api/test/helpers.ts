@@ -29,6 +29,13 @@ export async function register(email: string, name = email.split("@")[0]) {
   return { token: res.body.token as string, user: res.body.user as { id: string; email: string } };
 }
 
+/** Register someone and approve them as an instructor directly in the database. */
+export async function registerInstructor(email: string, name?: string) {
+  const account = await register(email, name);
+  await prisma.user.update({ where: { email }, data: { instructorStatus: "APPROVED" } });
+  return account;
+}
+
 /** Headers that sign a request in as the owner of `token`. */
 export const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -46,7 +53,7 @@ function expectOk(res: request.Response, what: string) {
  * has accepted her invite; Bo needs an accessible seat; Cy is left-handed.
  */
 export async function seedCourse() {
-  const instructor = await register("prof@uni.ca", "Prof Smith");
+  const instructor = await registerInstructor("prof@uni.ca", "Prof Smith");
   const course = expectOk(
     await api().post("/courses").set(auth(instructor.token)).send({ code: "ECE1779", name: "Cloud Computing" }),
     "create course",

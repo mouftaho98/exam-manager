@@ -19,6 +19,8 @@ const registerBody = z.object({
   password: z.string().min(8, "Password must be at least 8 characters").max(200),
   firstName: z.string().trim().min(1).max(100),
   lastName: z.string().trim().min(1).max(100),
+  // "I'm an instructor": asks for instructor access, which an admin must approve.
+  wantsToTeach: z.boolean().optional(),
 });
 
 const loginBody = z.object({
@@ -43,6 +45,7 @@ authRouter.post("/register", async (req, res) => {
     firstName: body.firstName,
     lastName: body.lastName,
     passwordHash: await bcrypt.hash(body.password, 10),
+    ...(body.wantsToTeach ? { instructorStatus: "PENDING" as const } : {}),
   };
   const user = existing
     ? await prisma.user.update({ where: { id: existing.id }, data })
