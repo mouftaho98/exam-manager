@@ -26,7 +26,7 @@ CREATE TABLE "Seat" (
 -- CreateTable
 CREATE TABLE "Exam" (
     "id" TEXT NOT NULL,
-    "courseId" TEXT NOT NULL,
+    "offeringId" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "startsAt" TIMESTAMP(3) NOT NULL,
     "durationMinutes" INTEGER NOT NULL,
@@ -80,7 +80,7 @@ CREATE UNIQUE INDEX "SeatAssignment_examId_checkinCode_key" ON "SeatAssignment"(
 ALTER TABLE "Seat" ADD CONSTRAINT "Seat_roomId_fkey" FOREIGN KEY ("roomId") REFERENCES "Room"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Exam" ADD CONSTRAINT "Exam_courseId_fkey" FOREIGN KEY ("courseId") REFERENCES "Course"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Exam" ADD CONSTRAINT "Exam_offeringId_fkey" FOREIGN KEY ("offeringId") REFERENCES "Offering"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ExamRoom" ADD CONSTRAINT "ExamRoom_examId_fkey" FOREIGN KEY ("examId") REFERENCES "Exam"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -92,7 +92,8 @@ ALTER TABLE "ExamRoom" ADD CONSTRAINT "ExamRoom_roomId_fkey" FOREIGN KEY ("roomI
 ALTER TABLE "SeatAssignment" ADD CONSTRAINT "SeatAssignment_examId_fkey" FOREIGN KEY ("examId") REFERENCES "Exam"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "SeatAssignment" ADD CONSTRAINT "SeatAssignment_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "CourseMember"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "SeatAssignment" ADD CONSTRAINT "SeatAssignment_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "OfferingMember"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "SeatAssignment" ADD CONSTRAINT "SeatAssignment_seatId_fkey" FOREIGN KEY ("seatId") REFERENCES "Seat"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+

@@ -1,8 +1,8 @@
 /**
- * Reads an instructor's roster CSV into rows we can save as course members.
+ * Reads an instructor's roster CSV into rows we can save as offering members.
  *
  * This is a pure function: no database, no HTTP. The route in
- * routes/courses.ts decides what to do with the rows.
+ * routes/offerings.ts decides what to do with the rows.
  */
 import { parse } from "csv-parse/sync";
 import { z } from "zod";
@@ -14,8 +14,9 @@ export interface RosterRow {
   studentNumber?: string;
   firstName?: string;
   lastName?: string;
-  needsAccessible: boolean;
-  leftHanded: boolean;
+  // undefined when the CSV has no such column, so existing settings are left alone.
+  needsAccessible?: boolean;
+  leftHanded?: boolean;
 }
 
 /** A row we couldn't use, and why. Shown to the instructor so they can fix the file. */
@@ -88,7 +89,10 @@ export function parseRoster(csv: string): { rows: RosterRow[]; errors: RosterErr
 
   records.slice(1).forEach((record, i) => {
     const line = i + 2; // +1 for the header row, +1 because line numbers start at 1
-    const row: RosterRow = { line, email: "", needsAccessible: false, leftHanded: false };
+    // A flag column that exists but is blank for this row means "no".
+    const row: RosterRow = { line, email: "" };
+    if (fields.includes("needsAccessible")) row.needsAccessible = false;
+    if (fields.includes("leftHanded")) row.leftHanded = false;
     // Copy each cell into the right field.
     record.forEach((value, col) => {
       const field = fields[col];

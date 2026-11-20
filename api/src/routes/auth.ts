@@ -8,6 +8,7 @@ import { z } from "zod";
 import { prisma } from "../db.js";
 import { signToken } from "../auth.js";
 import { conflict, unauthorized } from "../errors.js";
+import { userDto } from "../serializers.js";
 
 export const authRouter = Router();
 
@@ -16,7 +17,8 @@ export const authRouter = Router();
 const registerBody = z.object({
   email: z.string().email().transform((e) => e.toLowerCase()),
   password: z.string().min(8, "Password must be at least 8 characters").max(200),
-  name: z.string().trim().min(1).max(200),
+  firstName: z.string().trim().min(1).max(100),
+  lastName: z.string().trim().min(1).max(100),
 });
 
 const loginBody = z.object({
@@ -24,19 +26,27 @@ const loginBody = z.object({
   password: z.string().min(1),
 });
 
-// What we send back about a user. Never includes the password hash.
-const userDto = (u: { id: string; email: string; name: string }) => ({ id: u.id, email: u.email, name: u.name });
-
-/** Create an account. 409 if the email is already registered. */
+/**
+ * Create an account. 409 if the email is already registered.
+ *
+ * If an instructor already added this email (roster or invite), a User with no
+ * password exists; registering takes over that record, so the person keeps
+ * their student number and accessibility settings.
+ */
 authRouter.post("/register", async (req, res) => {
   const body = registerBody.parse(req.body);
   const existing = await prisma.user.findUnique({ where: { email: body.email } });
-  if (existing) throw conflict("email_taken", "An account with this email already exists, please sign in");
+  if (existing?.passwordHash) throw conflict("email_taken", "An account with this email already exists, please sign in");
 
-  const user = await prisma.user.create({
-    // Store a bcrypt hash (cost 10), never the plain password.
-    data: { email: body.email, name: body.name, passwordHash: await bcrypt.hash(body.password, 10) },
-  });
+  // Store a bcrypt hash (cost 10), never the plain password.
+  const data = {
+    firstName: body.firstName,
+    lastName: body.lastName,
+    passwordHash: await bcrypt.hash(body.password, 10),
+  };
+  const user = existing
+    ? await prisma.user.update({ where: { id: existing.id }, data })
+    : await prisma.user.create({ data: { ...data, email: body.email } });
   res.status(201).json({ token: signToken(user), user: userDto(user) });
 });
 
@@ -44,8 +54,8 @@ authRouter.post("/register", async (req, res) => {
 authRouter.post("/login", async (req, res) => {
   const body = loginBody.parse(req.body);
   const user = await prisma.user.findUnique({ where: { email: body.email } });
-  // Same message for "no such user" and "wrong password", so emails can't be probed.
-  if (!user || !(await bcrypt.compare(body.password, user.passwordHash))) {
+  // Same message for "no such user", "not registered yet" and "wrong password", so emails can't be probed.
+  if (!user?.passwordHash || !(await bcrypt.compare(body.password, user.passwordHash))) {
     throw unauthorized("Wrong email or password");
   }
   res.json({ token: signToken(user), user: userDto(user) });

@@ -2,46 +2,56 @@
  * The signed-in user's own data (mounted at /me, behind requireAuth).
  */
 import { Router } from "express";
+import { z } from "zod";
 import { prisma } from "../db.js";
 import { currentUser } from "../auth.js";
 import { notFound } from "../errors.js";
-import { seatDto } from "../serializers.js";
+import { offeringDto, seatDto, userDto } from "../serializers.js";
 
 export const meRouter = Router();
 
-/** The signed-in user and every course they belong to, with their role in each. */
+// People can change their own name. Accessibility settings are set by instructors.
+const updateMeBody = z.object({
+  firstName: z.string().trim().min(1).max(100).optional(),
+  lastName: z.string().trim().min(1).max(100).optional(),
+});
+
+/** The signed-in user and every offering they belong to, with their role in each. */
 meRouter.get("/", async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: currentUser(req).id },
-    // Only courses they've joined, not pending invites.
-    include: { memberships: { where: { status: "ACTIVE" }, include: { course: true } } },
+    // Only offerings they've joined, not pending invites.
+    include: { memberships: { where: { status: "ACTIVE" }, include: { offering: { include: { course: true } } } } },
   });
   if (!user) throw notFound("User");
   res.json({
-    user: { id: user.id, email: user.email, name: user.name },
-    // The frontend uses `role` to decide which view to show for each course.
-    courses: user.memberships.map((m) => ({
-      id: m.course.id,
-      code: m.course.code,
-      name: m.course.name,
-      term: m.course.term,
-      role: m.role,
-    })),
+    user: userDto(user),
+    // The frontend uses `role` to decide which view to show for each offering.
+    offerings: user.memberships.map((m) => ({ ...offeringDto(m.offering), role: m.role })),
   });
 });
 
-/** Student view: upcoming and past exams across all my courses, with my seat and check-in code. */
+/** Update my own name. */
+meRouter.patch("/", async (req, res) => {
+  const user = await prisma.user.update({
+    where: { id: currentUser(req).id },
+    data: updateMeBody.parse(req.body),
+  });
+  res.json({ user: userDto(user) });
+});
+
+/** Student view: upcoming and past exams across all my offerings, with my seat and check-in code. */
 meRouter.get("/exams", async (req, res) => {
-  // Every course where I'm a student, with its exams and my seat in each.
-  const memberships = await prisma.courseMember.findMany({
+  // Every offering where I'm a student, with its exams and my seat in each.
+  const memberships = await prisma.offeringMember.findMany({
     where: { userId: currentUser(req).id, status: "ACTIVE", role: "STUDENT" },
     include: {
-      course: { include: { exams: { orderBy: { startsAt: "asc" } } } },
+      offering: { include: { course: true, exams: { orderBy: { startsAt: "asc" } } } },
       assignments: { include: { seat: { include: { room: true } } } },
     },
   });
   const exams = memberships.flatMap((m) =>
-    m.course.exams.map((exam) => {
+    m.offering.exams.map((exam) => {
       // My seat for this exam, if seating has been generated.
       const a = m.assignments.find((x) => x.examId === exam.id);
       return {
@@ -49,14 +59,14 @@ meRouter.get("/exams", async (req, res) => {
         title: exam.title,
         startsAt: exam.startsAt,
         durationMinutes: exam.durationMinutes,
-        course: { id: m.course.id, code: m.course.code, name: m.course.name },
+        offering: offeringDto(m.offering),
         seat: a ? seatDto(a.seat) : null,
         room: a ? { id: a.seat.room.id, name: a.seat.room.name, building: a.seat.room.building } : null,
         checkinCode: a?.checkinCode ?? null,
       };
     }),
   );
-  // Mix exams from all courses into one list, soonest first.
+  // Mix exams from all offerings into one list, soonest first.
   exams.sort((x, y) => x.startsAt.getTime() - y.startsAt.getTime());
   res.json({ exams });
 });

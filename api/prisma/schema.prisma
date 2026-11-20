@@ -1,6 +1,12 @@
 // RollCall database schema.
-// Roles are per course: the same user can be an instructor in one course
-// and a student in another, so permissions live on CourseMember, not User.
+//
+// A Course is the catalog entry (ECE1779 Cloud Computing). An Offering is one
+// run of it (ECE1779, Fall 2026), with its own instructors, proctors and
+// students. Roles are per offering: the same user can teach one offering and
+// be a student in another, so permissions live on OfferingMember, not User.
+//
+// Facts about a person (name, student number, accessibility needs) live on
+// User, so they're the same in every offering.
 //
 // This file is the source of truth for the database. After editing it, run
 // `npm run db:migrate` to create a migration (SQL in prisma/migrations/) and
@@ -17,71 +23,93 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// What someone can do in a course. Instructors manage everything, proctors
+// What someone can do in an offering. Instructors manage everything, proctors
 // run exam day (check-in, moving seats), students see their own seat.
-enum CourseRole {
+enum Role {
   INSTRUCTOR
   PROCTOR
   STUDENT
 }
 
-// Whether a course member has linked an account yet.
+// Whether a member has accepted their invite yet.
 enum MemberStatus {
   INVITED // on the roster / invited, has not accepted yet
   ACTIVE // accepted the invite with their account
 }
 
-// A login account. One per person, shared across all their courses.
+// In calendar order, so sorting by semester sorts by time within a year.
+enum Semester {
+  WINTER
+  SUMMER
+  FALL
+}
+
+// A person. One per email, shared across all their offerings.
+//
+// A User can exist before the person signs up: uploading a roster creates one
+// for each new email, with no password. When that person registers with the
+// same email, they take over this record (see routes/auth.ts).
 model User {
-  id           String         @id @default(cuid())
-  email        String         @unique // stored lowercase
-  name         String
-  passwordHash String // bcrypt hash, never the password itself
-  createdAt    DateTime       @default(now())
-  memberships  CourseMember[]
-}
-
-// A course, e.g. ECE1779 Fall 2026. Deleting it deletes its members too.
-model Course {
-  id        String         @id @default(cuid())
-  code      String // e.g. ECE1779
-  name      String
-  term      String? // e.g. Fall 2026
-  createdAt DateTime       @default(now())
-  members   CourseMember[]
-  exams     Exam[] // deleted with the course
-}
-
-// A person's place in a course. Created by the instructor (roster upload or
-// invite) before the person has an account; userId is filled in when they
-// accept the invite.
-model CourseMember {
   id              String           @id @default(cuid())
-  courseId        String
-  course          Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  userId          String?
-  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
-  email           String // stored lowercase; the invite is sent here
-  role            CourseRole
-  status          MemberStatus     @default(INVITED)
-  inviteToken     String?          @unique // secret in the invite link; cleared once accepted
-  studentNumber   String?
+  email           String           @unique // stored lowercase
   firstName       String?
   lastName        String?
+  passwordHash    String? // bcrypt hash; null until the person registers
+  studentNumber   String?          @unique
   needsAccessible Boolean          @default(false) // gets an accessible seat at exams
   leftHanded      Boolean          @default(false) // gets a left-handed desk if there is one
   createdAt       DateTime         @default(now())
-  joinedAt        DateTime?
-  assignments     SeatAssignment[]
-
-  // A person can only appear once per course, by email, account or student number.
-  @@unique([courseId, email])
-  @@unique([courseId, userId])
-  @@unique([courseId, studentNumber])
-  @@index([userId]) // fast lookup of "all my courses"
+  memberships     OfferingMember[]
 }
 
-// Rooms are shared across courses so a room is only drawn once.
+// A course in the catalog, e.g. ECE1779 Cloud Computing. Shared by all its offerings.
+model Course {
+  id          String     @id @default(cuid())
+  code        String     @unique // e.g. ECE1779, stored uppercase
+  name        String
+  createdById String? // the user who added it; they can rename it
+  createdAt   DateTime   @default(now())
+  offerings   Offering[]
+}
+
+// One run of a course, e.g. ECE1779 in Fall 2026. Members belong to an offering.
+// Deleting it deletes its members too.
+model Offering {
+  id        String           @id @default(cuid())
+  courseId  String
+  course    Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  year      Int // e.g. 2026
+  semester  Semester
+  createdAt DateTime         @default(now())
+  members   OfferingMember[]
+  exams     Exam[] // deleted with the offering
+
+  // A course runs at most once per semester.
+  @@unique([courseId, year, semester])
+}
+
+// A person's place in an offering, with their role. Created when an instructor
+// invites someone or uploads a roster; status becomes ACTIVE when the person
+// accepts the invite.
+model OfferingMember {
+  id          String       @id @default(cuid())
+  offeringId  String
+  offering    Offering     @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        Role
+  status      MemberStatus @default(INVITED)
+  inviteToken String?      @unique // secret in the invite link; cleared once accepted
+  createdAt   DateTime     @default(now())
+  joinedAt    DateTime?
+  assignments SeatAssignment[]
+
+  // A person can only be in an offering once.
+  @@unique([offeringId, userId])
+  @@index([userId]) // fast lookup of "all my offerings"
+}
+
+// Rooms are shared across courses and offerings, so a room is only drawn once.
 model Room {
   id          String     @id @default(cuid())
   name        String // e.g. "BA 1130"
@@ -112,11 +140,11 @@ model Seat {
   @@unique([roomId, label])
 }
 
-// One sitting of an exam for a course, e.g. the midterm. Can use several rooms.
+// One sitting of an exam for an offering, e.g. the Fall 2026 midterm. Can use several rooms.
 model Exam {
   id                 String           @id @default(cuid())
-  courseId           String
-  course             Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  offeringId         String
+  offering           Offering         @relation(fields: [offeringId], references: [id], onDelete: Cascade)
   title              String
   startsAt           DateTime
   durationMinutes    Int
@@ -145,7 +173,7 @@ model SeatAssignment {
   examId       String
   exam         Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
   memberId     String
-  member       CourseMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member       OfferingMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
   seatId       String
   seat         Seat         @relation(fields: [seatId], references: [id], onDelete: Restrict)
   roomId       String // copy of seat.roomId, for fast per-room queries
