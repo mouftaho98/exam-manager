@@ -1,4 +1,12 @@
-// RollCall database schema. Tables are added in later changes.
+// RollCall database schema.
+//
+// A Course is the catalog entry (ECE1779 Cloud Computing). An Offering is one
+// run of it (ECE1779, Fall 2026), with its own instructors, proctors and
+// students. Roles are per offering: the same user can teach one offering and
+// be a student in another, so permissions live on OfferingMember, not User.
+//
+// Facts about a person (name, student number, accessibility needs) live on
+// User, so they're the same in every offering.
 //
 // This file is the source of truth for the database. After editing it, run
 // `npm run db:migrate` to create a migration (SQL in prisma/migrations/) and
@@ -13,4 +21,99 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// What someone can do in an offering. Instructors manage everything, proctors
+// run exam day (check-in, moving seats), students see their own seat.
+enum Role {
+  INSTRUCTOR
+  PROCTOR
+  STUDENT
+}
+
+// Whether a member has accepted their invite yet.
+enum MemberStatus {
+  INVITED // on the roster / invited, has not accepted yet
+  ACTIVE // accepted the invite with their account
+}
+
+// Whether a user may create courses and offerings. Anyone can ask at sign-up
+// (PENDING); an admin approves or rejects the request.
+enum InstructorStatus {
+  NONE // never asked
+  PENDING // asked, waiting for an admin
+  APPROVED // can create courses and offerings
+  REJECTED // an admin said no; they can ask again
+}
+
+// In calendar order, so sorting by semester sorts by time within a year.
+enum Semester {
+  WINTER
+  SUMMER
+  FALL
+}
+
+// A person. One per email, shared across all their offerings.
+//
+// A User can exist before the person signs up: uploading a roster creates one
+// for each new email, with no password. When that person registers with the
+// same email, they take over this record (see routes/auth.ts).
+model User {
+  id              String           @id @default(cuid())
+  email           String           @unique // stored lowercase
+  firstName       String?
+  lastName        String?
+  passwordHash    String? // bcrypt hash; null until the person registers
+  studentNumber   String?          @unique
+  needsAccessible Boolean          @default(false) // set by the person; gets an accessible seat at exams
+  leftHanded      Boolean          @default(false) // set by the person; gets a left-handed desk if there is one
+  instructorStatus InstructorStatus @default(NONE)
+  isAdmin         Boolean          @default(false) // approves instructors; set with src/scripts/make-admin.ts
+  createdAt       DateTime         @default(now())
+  memberships     OfferingMember[]
+}
+
+// A course in the catalog, e.g. ECE1779 Cloud Computing. Shared by all its offerings.
+model Course {
+  id          String     @id @default(cuid())
+  code        String     @unique // e.g. ECE1779, stored uppercase
+  name        String
+  createdById String? // the user who added it; they can rename it
+  createdAt   DateTime   @default(now())
+  offerings   Offering[]
+}
+
+// One run of a course, e.g. ECE1779 in Fall 2026. Members belong to an offering.
+// Deleting it deletes its members too.
+model Offering {
+  id        String           @id @default(cuid())
+  courseId  String
+  course    Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  year      Int // e.g. 2026
+  semester  Semester
+  createdAt DateTime         @default(now())
+  members   OfferingMember[]
+
+  // A course runs at most once per semester.
+  @@unique([courseId, year, semester])
+}
+
+// A person's place in an offering, with their role. Created when an instructor
+// invites someone or uploads a roster; status becomes ACTIVE when the person
+// accepts the invite.
+model OfferingMember {
+  id          String       @id @default(cuid())
+  offeringId  String
+  offering    Offering     @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        Role
+  status      MemberStatus @default(INVITED)
+  inviteToken String?      @unique // secret in the invite link; cleared once accepted
+  createdAt   DateTime     @default(now())
+  joinedAt    DateTime?
+
+  // A person can only be in an offering once.
+  @@unique([offeringId, userId])
+  @@index([userId]) // fast lookup of "all my offerings"
 }

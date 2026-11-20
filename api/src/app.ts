@@ -9,7 +9,14 @@ import express from "express";
 import cors from "cors";
 import { config } from "./config.js";
 import { prisma } from "./db.js";
+import { requireAuth } from "./auth.js";
 import { errorHandler, notFound } from "./errors.js";
+import { authRouter } from "./routes/auth.js";
+import { meRouter } from "./routes/me.js";
+import { invitesRouter } from "./routes/invites.js";
+import { coursesRouter } from "./routes/courses.js";
+import { offeringsRouter } from "./routes/offerings.js";
+import { adminRouter } from "./routes/admin.js";
 
 /** Create a new, fully configured Express app. */
 export function createApp() {
@@ -41,6 +48,15 @@ export function createApp() {
       res.status(503).json({ ok: false });
     }
   });
+
+  // API routes. Each router lives in src/routes/. requireAuth rejects requests
+  // without a valid login token before they reach the router.
+  app.use("/auth", authRouter); // register and log in (public)
+  app.use("/invites", invitesRouter); // GET is public; accept requires auth
+  app.use("/me", requireAuth, meRouter); // the signed-in user's own data
+  app.use("/courses", requireAuth, coursesRouter); // the course catalog
+  app.use("/offerings", requireAuth, offeringsRouter); // one term of a course, and its members
+  app.use("/admin", requireAuth, adminRouter); // approving instructors (admins only)
 
   // Anything that didn't match a route above is a 404.
   app.use((_req, _res, next) => next(notFound("Route")));

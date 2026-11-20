@@ -18,6 +18,6 @@ export default defineConfig({
     // Applies migrations to the test DB before anything runs.
     globalSetup: ["test/global-setup.ts"],
     // Environment variables the app sees while tests run.
-    env: { DATABASE_URL: testDatabaseUrl },
+    env: { DATABASE_URL: testDatabaseUrl, JWT_SECRET: "test-secret" },
   },
 });
