@@ -34,6 +34,7 @@ npm test
 ```
 
 Integration tests use `TEST_DATABASE_URL` (default `postgresql://exam:exam@localhost:55432/exam_manager_test`) and wipe it.
+`npm run test:unit` runs only the seating and CSV tests, which need no database.
 
 ## Environment
 
@@ -60,12 +61,15 @@ The container runs `prisma migrate deploy` before starting, so a new image appli
 - **Roles are per offering.** A user can be `INSTRUCTOR`, `PROCTOR` or `STUDENT`, and the role can differ from offering to offering. Whoever starts an offering is its first instructor. Instructors invite students, proctors or co-instructors and choose the role for each; students are also invited automatically by the roster upload. Proctors run exam day: check-in and moving seats.
 - **People live on `User`.** Name, student number and accessibility settings (`needsAccessible`, `leftHanded`) are stored once per person and shared by every offering they're in. **Students set their own accessibility and left-handed needs** at sign-up or with `PATCH /me`; instructors can't, since they don't have that information.
 - **Invites.** Uploading a roster or adding a member creates the person's `User` if they don't have one yet (with no password), plus an `OfferingMember` with an invite link. The person registers or signs in *with the invited email*, then accepts. Registering with that email takes over the existing record, so roster details carry over. Until they accept, their status is `INVITED`.
+- **Rooms** are shared between courses. Each row can have a different length, and gaps in `col` are aisles.
+- **Seating** places students who need an accessible seat first, then left-handed students, then everyone else at random. It keeps one empty seat between students while the room allows it, and never uses broken seats. Instructors and proctors can both move, swap or unseat students afterwards. Accessible and left-handed seats are a preference: if a room has none or too few, those students get ordinary seats and the result includes a warning. Invited students who haven't accepted yet still get a seat. Accessibility and left-handed needs come from each student's own profile.
+- **Check-in codes.** Each student gets one 6-character code per exam; the QR code just encodes it. The code survives regenerating the seating and manual moves.
 - **What a roster can change.** For a person who already exists, the student number is updated. Their name is only updated if they haven't registered yet.
 
 ## Errors
 
 Every error looks like `{ "error": { "code": "...", "message": "...", "details": ... } }`.
-Codes to handle in the UI: `unauthorized`, `forbidden`, `not_found`, `validation_error`, `email_taken`, `instructor_not_approved`, `already_instructor`, `course_exists`, `offering_exists`, `already_member`, `last_instructor`.
+Codes to handle in the UI: `unauthorized`, `forbidden`, `not_found`, `validation_error`, `email_taken`, `instructor_not_approved`, `already_instructor`, `course_exists`, `offering_exists`, `already_member`, `last_instructor`, `seat_taken`, `room_in_use`.
 
 ## Endpoints
 
@@ -79,6 +83,7 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 | GET | `/me` | signed in | user (name, student number, accessibility) + every offering with my role |
 | PATCH | `/me` | signed in | `{ firstName?, lastName?, needsAccessible?, leftHanded? }` |
 | POST | `/me/instructor-request` | signed in | ask for instructor access (status becomes `PENDING`) |
+| GET | `/me/exams` | signed in | my exams as a student: offering, seat, room, `checkinCode` |
 
 ### Invites
 | Method | Path | Who | Notes |
@@ -112,3 +117,25 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 | POST | `/offerings/:id/roster` | instructor | **`Content-Type: text/csv`**, columns `email, student_number, first_name, last_name` (only email required; other columns are ignored). Adds or updates by email and never removes anyone. Returns `{ created, updated, errors[], invites[] }` |
 | PATCH / DELETE | `/offerings/:id/members/:memberId` | instructor | PATCH takes `role` and the person fields above |
 | POST | `/offerings/:id/members/:memberId/invite` | instructor | new invite link; the old one stops working |
+
+### Rooms
+| Method | Path | Who | Body / notes |
+|---|---|---|---|
+| POST | `/rooms` | instructors and proctors | `{ name, building?, rows: [{ label?, seats: 12 }]` or `seats: [{ col, label?, accessible?, leftHanded?, broken? }] }`. Seat labels default to row letter + (col+1), e.g. `C7` |
+| GET | `/rooms?q=` | signed in | list with capacity |
+| GET | `/rooms/:id` | signed in | layout as `rows[].seats[]` |
+| PUT | `/rooms/:id` | room creator or exam staff | replace the layout; refused while students are seated there |
+| PATCH | `/rooms/:id/seats/:seatId` | room creator or exam staff | `{ accessible?, leftHanded?, broken? }` |
+
+### Exams and seating
+| Method | Path | Who | Body / notes |
+|---|---|---|---|
+| POST | `/offerings/:id/exams` | instructor | `{ title, startsAt (ISO), durationMinutes, roomIds? }` |
+| GET | `/offerings/:id/exams` | member | |
+| GET | `/exams/:id` | member | staff get counts; students get `mySeat` (code, seat and room map) |
+| PATCH / DELETE | `/exams/:id` | instructor | |
+| PUT | `/exams/:id/rooms` | instructor | `{ roomIds }` |
+| POST | `/exams/:id/seating/generate` | instructor | `{ seed? }` → `{ assigned, unassigned[], warnings[], seed }` |
+| GET | `/exams/:id/seating` | staff | every seat with its student, plus unseated students |
+| PATCH | `/exams/:id/assignments/:studentId` | instructor or proctor | `{ seatId, swap? }`; 409 `seat_taken` unless `swap: true` |
+| DELETE | `/exams/:id/assignments/:studentId` | instructor or proctor | unseat a student |

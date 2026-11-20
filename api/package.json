@@ -12,6 +12,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "postinstall": "prisma generate",
+    "test:unit": "SKIP_DB_SETUP=1 vitest run test/seating.test.ts test/roster.test.ts",
     "make-admin": "tsx src/scripts/make-admin.ts"
   },
   "dependencies": {

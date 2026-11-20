@@ -3,7 +3,7 @@
  * Keeping this in one place means every endpoint returns members the same way,
  * and fields like the invite token are only included on purpose.
  */
-import type { Course, Offering, OfferingMember, User } from "@prisma/client";
+import type { Course, Offering, OfferingMember, Seat, User } from "@prisma/client";
 import { config } from "./config.js";
 
 /** The link a person opens to join an offering, on the web app (WEB_URL). */
@@ -64,4 +64,27 @@ export function memberDto(m: OfferingMember & { user: User }, opts: { includeInv
     joinedAt: m.joinedAt,
     ...(opts.includeInvite && m.inviteToken ? { inviteUrl: inviteUrl(m.inviteToken) } : {}),
   };
+}
+
+/** One seat as the API returns it. */
+export function seatDto(s: Seat) {
+  return {
+    id: s.id,
+    row: s.row,
+    col: s.col,
+    label: s.label,
+    accessible: s.accessible,
+    leftHanded: s.leftHanded,
+    broken: s.broken,
+  };
+}
+
+/** Groups seats into rows (front first) for drawing the room map. */
+export function seatRows<T extends Seat>(seats: T[]) {
+  const rows = new Map<number, T[]>();
+  for (const s of [...seats].sort((a, b) => a.row - b.row || a.col - b.col)) {
+    if (!rows.has(s.row)) rows.set(s.row, []);
+    rows.get(s.row)!.push(s);
+  }
+  return [...rows.entries()].map(([row, rowSeats]) => ({ row, seats: rowSeats }));
 }

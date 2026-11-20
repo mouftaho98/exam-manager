@@ -51,3 +51,28 @@ export async function requireOfferingRole(
   if (roles && !roles.includes(member.role)) throw forbidden();
   return member;
 }
+
+/**
+ * Instructors and proctors only, for things that aren't tied to one offering
+ * (like creating a room). Counts as staff: an approved instructor, or anyone
+ * who is an active instructor or proctor in at least one offering.
+ */
+export async function requireTeachingStaff(userId: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { instructorStatus: true } });
+  if (user?.instructorStatus === "APPROVED") return;
+  const staffSomewhere = await prisma.offeringMember.findFirst({
+    where: { userId, status: "ACTIVE", role: { in: STAFF } },
+  });
+  if (!staffSomewhere) throw forbidden("Only instructors and proctors can do this");
+}
+
+/**
+ * Loads an exam and checks the user's role in its offering.
+ * Exams don't have their own permissions: access comes from the offering.
+ */
+export async function requireExamRole(userId: string, examId: string, roles?: Role[]) {
+  const exam = await prisma.exam.findUnique({ where: { id: examId } });
+  if (!exam) throw notFound("Exam");
+  const member = await requireOfferingRole(userId, exam.offeringId, roles);
+  return { exam, member };
+}

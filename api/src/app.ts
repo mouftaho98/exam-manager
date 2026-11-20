@@ -15,6 +15,8 @@ import { authRouter } from "./routes/auth.js";
 import { meRouter } from "./routes/me.js";
 import { invitesRouter } from "./routes/invites.js";
 import { coursesRouter } from "./routes/courses.js";
+import { roomsRouter } from "./routes/rooms.js";
+import { examsRouter } from "./routes/exams.js";
 import { offeringsRouter } from "./routes/offerings.js";
 import { adminRouter } from "./routes/admin.js";
 
@@ -57,6 +59,10 @@ export function createApp() {
   app.use("/courses", requireAuth, coursesRouter); // the course catalog
   app.use("/offerings", requireAuth, offeringsRouter); // one term of a course, and its members
   app.use("/admin", requireAuth, adminRouter); // approving instructors (admins only)
+  app.use("/rooms", requireAuth, roomsRouter); // room layouts (shared by all courses)
+  // Exams live under both /offerings/:id/exams and /exams/:id, so this router is
+  // mounted at "/". It signs in on its own paths, so unknown routes still 404.
+  app.use("/", examsRouter);
 
   // Anything that didn't match a route above is a 404.
   app.use((_req, _res, next) => next(notFound("Route")));
