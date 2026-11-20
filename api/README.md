@@ -64,7 +64,7 @@ The container runs `prisma migrate deploy` before starting, so a new image appli
 - **People live on `User`.** Name, student number and accessibility settings (`needsAccessible`, `leftHanded`) are stored once per person and shared by every offering they're in. **Students set their own accessibility and left-handed needs** at sign-up or with `PATCH /me`; instructors can't, since they don't have that information.
 - **Invites.** Uploading a roster or adding a member creates the person's `User` if they don't have one yet (with no password), plus an `OfferingMember` with an invite link. The person registers or signs in *with the invited email*, then accepts. Registering with that email takes over the existing record, so roster details carry over. Until they accept, their status is `INVITED`.
 - **Rooms** are shared between courses. Each row can have a different length, and gaps in `col` are aisles.
-- **Seating** places students who need an accessible seat first, then left-handed students, then everyone else at random. It keeps one empty seat between students while the room allows it, and never uses broken seats. Staff can move or swap students afterwards. Invited students who haven't accepted yet still get a seat. Accessibility and left-handed needs come from each student's own profile.
+- **Seating** places students who need an accessible seat first, then left-handed students, then everyone else at random. It keeps one empty seat between students while the room allows it, and never uses broken seats. Instructors and proctors can both move, swap or unseat students afterwards. Accessible and left-handed seats are a preference: if a room has none or too few, those students get ordinary seats and the result includes a warning. Invited students who haven't accepted yet still get a seat. Accessibility and left-handed needs come from each student's own profile.
 - **Check-in codes.** Each student gets one 6-character code per exam; the QR code just encodes it. The code survives regenerating the seating and manual moves.
 - **What a roster can change.** For a person who already exists, the student number is updated. Their name is only updated if they haven't registered yet.
 
@@ -123,7 +123,7 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 ### Rooms
 | Method | Path | Who | Body / notes |
 |---|---|---|---|
-| POST | `/rooms` | signed in | `{ name, building?, rows: [{ label?, seats: 12 }]` or `seats: [{ col, label?, accessible?, leftHanded?, broken? }] }`. Seat labels default to row letter + (col+1), e.g. `C7` |
+| POST | `/rooms` | instructors and proctors | `{ name, building?, rows: [{ label?, seats: 12 }]` or `seats: [{ col, label?, accessible?, leftHanded?, broken? }] }`. Seat labels default to row letter + (col+1), e.g. `C7` |
 | GET | `/rooms?q=` | signed in | list with capacity |
 | GET | `/rooms/:id` | signed in | layout as `rows[].seats[]` |
 | PUT | `/rooms/:id` | room creator or exam staff | replace the layout; refused while students are seated there |
@@ -139,14 +139,14 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 | PUT | `/exams/:id/rooms` | instructor | `{ roomIds }` |
 | POST | `/exams/:id/seating/generate` | instructor | `{ seed? }` → `{ assigned, unassigned[], warnings[], seed }`. Refused once check-in starts |
 | GET | `/exams/:id/seating` | staff | every seat with its student and `checkedInAt`, plus unseated students |
-| PATCH | `/exams/:id/assignments/:memberId` | staff | `{ seatId, swap? }`; 409 `seat_taken` unless `swap: true` |
-| DELETE | `/exams/:id/assignments/:memberId` | staff | unseat a student |
+| PATCH | `/exams/:id/assignments/:studentId` | instructor or proctor | `{ seatId, swap? }`; 409 `seat_taken` unless `swap: true` |
+| DELETE | `/exams/:id/assignments/:studentId` | instructor or proctor | unseat a student |
 
 ### Check-in
 | Method | Path | Who | Body / notes |
 |---|---|---|---|
-| POST | `/exams/:id/checkins` | staff | `{ roomId, code }` or `{ roomId, memberId }`. 201 `checked_in`, or 200 `already_checked_in` on a retry. 409 `wrong_room` says where the student belongs (`details.room`, `details.seat`) and records nothing |
-| DELETE | `/exams/:id/checkins/:memberId` | staff | undo a check-in |
+| POST | `/exams/:id/checkins` | staff | `{ roomId, code }` or `{ roomId, studentId }`. 201 `checked_in`, or 200 `already_checked_in` on a retry. 409 `wrong_room` says where the student belongs (`details.room`, `details.seat`) and records nothing |
+| DELETE | `/exams/:id/checkins/:studentId` | staff | undo a check-in |
 | GET | `/exams/:id/attendance` | staff | totals, per-room counts, list of missing students |
 
 ## Live updates (Socket.IO)
@@ -154,10 +154,10 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 ```js
 const socket = io(API_URL, { auth: { token }, transports: ["websocket"] });
 socket.emit("exam:join", { examId }, (res) => { /* { ok: true } or { ok: false, error } */ });
-socket.on("checkin:created", (e) => {});   // { examId, memberId, roomId, seatId, seatLabel, name, checkedInAt }
-socket.on("checkin:removed", (e) => {});   // { examId, memberId, roomId }
-socket.on("seat:moved", (e) => {});        // { examId, moves: [{ memberId, seatId, roomId }] } (seatId null = unseated)
+socket.on("checkin:created", (e) => {});   // { examId, studentId, roomId, seatId, seatLabel, name, checkedInAt }
+socket.on("checkin:removed", (e) => {});   // { examId, studentId, roomId }
+socket.on("seat:moved", (e) => {});        // { examId, moves: [{ studentId, seatId, roomId }] } (seatId null = unseated)
 socket.on("seating:generated", (e) => {}); // { examId, assigned, unassigned } -> refetch /seating
 ```
 
-Only staff of the exam's course can join. Events come from whichever pod handled the request; Redis relays them to clients on every pod.
+Only the exam's instructors and proctors can join. Events come from whichever pod handled the request; Redis relays them to clients on every pod.

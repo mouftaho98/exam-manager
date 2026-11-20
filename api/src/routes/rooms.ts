@@ -1,15 +1,15 @@
 /**
  * Rooms and their seat layouts (mounted at /rooms, behind requireAuth).
  *
- * Rooms aren't tied to a course: any signed-in user can create one, and every
- * offering can use it for exams. Only the creator, or staff of an offering with an
- * exam in the room, can change it.
+ * Rooms aren't tied to a course: every offering can use any room for exams.
+ * Only instructors and proctors can create rooms (students can't). Only the
+ * creator, or staff of an offering with an exam in the room, can change it.
  */
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { currentUser } from "../auth.js";
-import { STAFF } from "../access.js";
+import { STAFF, requireTeachingStaff } from "../access.js";
 import { badRequest, conflict, forbidden, notFound } from "../errors.js";
 import { seatDto, seatRows } from "../serializers.js";
 
@@ -120,6 +120,7 @@ async function assertCanEditRoom(userId: string, roomId: string) {
 
 /** Create a room with its whole seat layout. */
 roomsRouter.post("/", async (req, res) => {
+  await requireTeachingStaff(currentUser(req).id);
   const body = roomBody.parse(req.body);
   const seats = buildSeats(body.rows);
   const room = await prisma.room.create({

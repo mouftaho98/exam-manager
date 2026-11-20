@@ -23,9 +23,9 @@ import { STAFF } from "./access.js";
 // sessions behind the load balancer.
 //
 // Events sent to an exam room:
-//   checkin:created  { examId, memberId, roomId, seatId, ... }
-//   checkin:removed  { examId, memberId, roomId }
-//   seat:moved       { examId, moves: [{ memberId, seatId, roomId }] }
+//   checkin:created  { examId, studentId, roomId, seatId, ... }
+//   checkin:removed  { examId, studentId, roomId }
+//   seat:moved       { examId, moves: [{ studentId, seatId, roomId }] }
 //   seating:generated { examId, assigned, unassigned }
 
 // The Socket.IO server. Undefined until attachRealtime runs (e.g. in most tests),

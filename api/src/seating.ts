@@ -4,6 +4,9 @@
 // 1. Broken seats are never used.
 // 2. Students who need an accessible seat are placed first, on accessible seats.
 // 3. Left-handed students are placed next, on left-handed seats.
+//    Special seats are a preference, not a requirement: if a room has none (or
+//    too few), those students get the best ordinary seat and the result
+//    carries a warning for the instructor. Nothing fails.
 // 4. Everyone else is placed randomly, avoiding the special seats while
 //    ordinary seats are left, so they stay free for students who need them.
 // 5. Spacing: every pick prefers the seat with the fewest occupied neighbours
