@@ -61,12 +61,12 @@ The container runs `prisma migrate deploy` before starting, so a new image appli
 - **Becoming an instructor.** Anyone can ask to be an instructor, by ticking it at sign-up (`wantsToTeach: true`) or later with `POST /me/instructor-request`. Their `instructorStatus` stays `PENDING` until an admin approves it. Only `APPROVED` instructors can add courses or start offerings.
 - **Admins** approve instructor requests. Make the first admin from the command line once they've registered: `npm run make-admin -- you@uni.ca` locally, or `node dist/scripts/make-admin.js you@uni.ca` inside the container.
 - **Roles are per offering.** A user can be `INSTRUCTOR`, `PROCTOR` or `STUDENT`, and the role can differ from offering to offering. Whoever starts an offering is its first instructor. Instructors invite students, proctors or co-instructors and choose the role for each; students are also invited automatically by the roster upload. Proctors run exam day: check-in and moving seats.
-- **People live on `User`.** Name, student number and accessibility settings (`needsAccessible`, `leftHanded`) are stored once per person and shared by every offering they're in.
+- **People live on `User`.** Name, student number and accessibility settings (`needsAccessible`, `leftHanded`) are stored once per person and shared by every offering they're in. **Students set their own accessibility and left-handed needs** at sign-up or with `PATCH /me`; instructors can't, since they don't have that information.
 - **Invites.** Uploading a roster or adding a member creates the person's `User` if they don't have one yet (with no password), plus an `OfferingMember` with an invite link. The person registers or signs in *with the invited email*, then accepts. Registering with that email takes over the existing record, so roster details carry over. Until they accept, their status is `INVITED`.
-- **What a roster can change.** For a person who already exists: accessibility flags and student number are updated, but only when the CSV has that column. Their name is only updated if they haven't registered yet.
 - **Rooms** are shared between courses. Each row can have a different length, and gaps in `col` are aisles.
-- **Seating** places students who need an accessible seat first, then left-handed students, then everyone else at random. It keeps one empty seat between students while the room allows it, and never uses broken seats. Staff can move or swap students afterwards. Invited students who haven't accepted yet still get a seat.
+- **Seating** places students who need an accessible seat first, then left-handed students, then everyone else at random. It keeps one empty seat between students while the room allows it, and never uses broken seats. Staff can move or swap students afterwards. Invited students who haven't accepted yet still get a seat. Accessibility and left-handed needs come from each student's own profile.
 - **Check-in codes.** Each student gets one 6-character code per exam; the QR code just encodes it. The code survives regenerating the seating and manual moves.
+- **What a roster can change.** For a person who already exists, the student number is updated. Their name is only updated if they haven't registered yet.
 
 ## Errors
 
@@ -80,10 +80,10 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 ### Auth and me
 | Method | Path | Who | Body / notes |
 |---|---|---|---|
-| POST | `/auth/register` | anyone | `{ email, password (8+), firstName, lastName, wantsToTeach? }` → `{ token, user }`. `wantsToTeach: true` asks for instructor access |
+| POST | `/auth/register` | anyone | `{ email, password (8+), firstName, lastName, wantsToTeach?, needsAccessible?, leftHanded? }` → `{ token, user }`. `wantsToTeach: true` asks for instructor access |
 | POST | `/auth/login` | anyone | `{ email, password }` → `{ token, user }` |
 | GET | `/me` | signed in | user (name, student number, accessibility) + every offering with my role |
-| PATCH | `/me` | signed in | `{ firstName?, lastName? }` |
+| PATCH | `/me` | signed in | `{ firstName?, lastName?, needsAccessible?, leftHanded? }` |
 | POST | `/me/instructor-request` | signed in | ask for instructor access (status becomes `PENDING`) |
 | GET | `/me/exams` | signed in | my exams as a student: offering, seat, room, `checkinCode`, `checkedInAt` |
 
@@ -115,8 +115,8 @@ All routes except `/auth/*`, `GET /invites/:token`, `/health` and `/ready` need 
 | GET | `/offerings/:id` | member | offering, `myRole`, member counts |
 | PATCH / DELETE | `/offerings/:id` | instructor | `{ year?, semester? }` |
 | GET | `/offerings/:id/members?role=` | staff | instructors also get each member's `inviteUrl` |
-| POST | `/offerings/:id/members` | instructor | `{ email, role, studentNumber?, firstName?, lastName?, needsAccessible?, leftHanded? }` |
-| POST | `/offerings/:id/roster` | instructor | **`Content-Type: text/csv`**, columns `email, student_number, first_name, last_name, accessible, left_handed` (only email required). Adds or updates by email and never removes anyone. Returns `{ created, updated, errors[], invites[] }` |
+| POST | `/offerings/:id/members` | instructor | `{ email, role, studentNumber?, firstName?, lastName? }` |
+| POST | `/offerings/:id/roster` | instructor | **`Content-Type: text/csv`**, columns `email, student_number, first_name, last_name` (only email required; other columns are ignored). Adds or updates by email and never removes anyone. Returns `{ created, updated, errors[], invites[] }` |
 | PATCH / DELETE | `/offerings/:id/members/:memberId` | instructor | PATCH takes `role` and the person fields above |
 | POST | `/offerings/:id/members/:memberId/invite` | instructor | new invite link; the old one stops working |
 

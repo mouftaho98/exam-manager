@@ -5,16 +5,16 @@ import { describe, expect, it } from "vitest";
 import { parseRoster } from "../src/roster.js";
 
 describe("parseRoster", () => {
-  it("reads the standard columns", () => {
+  it("reads the standard columns and ignores others (like accessibility)", () => {
     const { rows, errors } = parseRoster(
-      "email,student_number,first_name,last_name,accessible,left_handed\n" +
-        "Ana@Mail.com,1001,Ana,Lee,yes,\n" +
-        "bo@mail.com,1002,Bo,Chan,,true\n",
+      "email,student_number,first_name,last_name,accessible\n" +
+        "Ana@Mail.com,1001,Ana,Lee,yes\n" +
+        "bo@mail.com,1002,Bo,Chan,\n",
     );
     expect(errors).toEqual([]);
     expect(rows).toEqual([
-      { line: 2, email: "ana@mail.com", studentNumber: "1001", firstName: "Ana", lastName: "Lee", needsAccessible: true, leftHanded: false },
-      { line: 3, email: "bo@mail.com", studentNumber: "1002", firstName: "Bo", lastName: "Chan", needsAccessible: false, leftHanded: true },
+      { line: 2, email: "ana@mail.com", studentNumber: "1001", firstName: "Ana", lastName: "Lee" },
+      { line: 3, email: "bo@mail.com", studentNumber: "1002", firstName: "Bo", lastName: "Chan" },
     ]);
   });
 

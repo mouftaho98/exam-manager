@@ -65,8 +65,8 @@ model User {
   lastName        String?
   passwordHash    String? // bcrypt hash; null until the person registers
   studentNumber   String?          @unique
-  needsAccessible Boolean          @default(false) // gets an accessible seat at exams
-  leftHanded      Boolean          @default(false) // gets a left-handed desk if there is one
+  needsAccessible Boolean          @default(false) // set by the person; gets an accessible seat at exams
+  leftHanded      Boolean          @default(false) // set by the person; gets a left-handed desk if there is one
   instructorStatus InstructorStatus @default(NONE)
   isAdmin         Boolean          @default(false) // approves instructors; set with src/scripts/make-admin.ts
   createdAt       DateTime         @default(now())

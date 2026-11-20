@@ -17,12 +17,12 @@ describe("accounts, courses, offerings and invites", () => {
   let anaMemberId: string;
 
   const roster = [
-    "email,student_number,first_name,last_name,accessible,left_handed",
-    "ana@mail.com,1001,Ana,Lee,,",
-    "bo@mail.com,1002,Bo,Chan,yes,",
-    "cy@mail.com,1003,Cy,Diaz,,yes",
-    ...Array.from({ length: 9 }, (_, i) => `s${i}@mail.com,20${i},S,${i},,`),
-    "broken-row,9999,,,,",
+    "email,student_number,first_name,last_name",
+    "ana@mail.com,1001,Ana,Lee",
+    "bo@mail.com,1002,Bo,Chan",
+    "cy@mail.com,1003,Cy,Diaz",
+    ...Array.from({ length: 9 }, (_, i) => `s${i}@mail.com,20${i},S,${i}`),
+    "broken-row,9999,,",
   ].join("\n");
   const upload = (offering: string, csv: string, token = instructor.token) =>
     api().post(`/offerings/${offering}/roster`).set(auth(token)).set("Content-Type", "text/csv").send(csv);
@@ -115,7 +115,7 @@ describe("accounts, courses, offerings and invites", () => {
 
     // Person details are stored on the User, with no password yet.
     const bo = await prisma.user.findUniqueOrThrow({ where: { email: "bo@mail.com" } });
-    expect(bo).toMatchObject({ firstName: "Bo", studentNumber: "1002", needsAccessible: true, passwordHash: null });
+    expect(bo).toMatchObject({ firstName: "Bo", studentNumber: "1002", passwordHash: null });
 
     // Uploading again updates instead of duplicating.
     expect((await upload(offeringId, roster)).body).toMatchObject({ created: 0, updated: 12 });
@@ -163,9 +163,6 @@ describe("accounts, courses, offerings and invites", () => {
     const winterId = winter.body.offering.id;
     await api().post(`/offerings/${winterId}/members`).set(auth(instructor.token)).send({ email: "bo@mail.com", role: "PROCTOR" });
 
-    // A roster without the accessibility columns leaves Bo's setting alone.
-    await upload(winterId, "email,first_name\nnew@mail.com,New\n");
-    expect((await prisma.user.findUniqueOrThrow({ where: { email: "bo@mail.com" } })).needsAccessible).toBe(true);
 
     // A registered user's name isn't overwritten by a roster.
     const again = await upload(winterId, "email,first_name,last_name\nana@mail.com,Annie,Lee\n");
@@ -202,6 +199,24 @@ describe("accounts, courses, offerings and invites", () => {
     expect((await api().get(`/offerings/${offeringId}`).set(auth(outsider.token))).status).toBe(404);
     // Only the course's instructors can rename it.
     expect((await api().patch(`/courses/${courseId}`).set(auth(outsider.token)).send({ name: "Hacked" })).status).toBe(403);
+  });
+
+  it("lets students set their own accessibility needs, at sign-up and later", async () => {
+    // Bo says he needs an accessible seat when he creates his account.
+    const bo = await api()
+      .post("/auth/register")
+      .send({ email: "bo@mail.com", password: "password123", firstName: "Bo", lastName: "Chan", needsAccessible: true });
+    expect(bo.body.user).toMatchObject({ needsAccessible: true, leftHanded: false, studentNumber: "1002" });
+
+    // Later he also asks for a left-handed desk.
+    const later = await api().patch("/me").set(auth(bo.body.token)).send({ leftHanded: true });
+    expect(later.body.user).toMatchObject({ needsAccessible: true, leftHanded: true });
+
+    // Instructors can't set these: the fields are ignored on invites and rosters.
+    await api().post(`/offerings/${offeringId}/members`).set(auth(instructor.token)).send({ email: "zz@mail.com", role: "STUDENT", needsAccessible: true });
+    await upload(offeringId, "email,accessible\nyy@mail.com,yes\n");
+    const others = await prisma.user.findMany({ where: { email: { in: ["zz@mail.com", "yy@mail.com"] } } });
+    expect(others.map((u) => u.needsAccessible)).toEqual([false, false]);
   });
 
   it("shows the instructor who has joined and who is still invited", async () => {

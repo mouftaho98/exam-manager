@@ -50,7 +50,8 @@ function expectOk(res: request.Response, what: string) {
 
 /**
  * An offering (ECE1779, Fall 2026) with an instructor, a proctor and 12 students. Ana (ana@mail.com)
- * has accepted her invite; Bo needs an accessible seat; Cy is left-handed.
+ * has accepted her invite. Bo and Cy have signed up and set their own seating
+ * needs (Bo needs an accessible seat, Cy is left-handed) but not accepted yet.
  */
 export async function seedCourse() {
   const instructor = await registerInstructor("prof@uni.ca", "Prof Smith");
@@ -64,11 +65,11 @@ export async function seedCourse() {
   );
   const offeringId: string = offering.body.offering.id;
   const csv = [
-    "email,student_number,first_name,last_name,accessible,left_handed",
-    "ana@mail.com,1001,Ana,Lee,,",
-    "bo@mail.com,1002,Bo,Chan,yes,",
-    "cy@mail.com,1003,Cy,Diaz,,yes",
-    ...Array.from({ length: 9 }, (_, i) => `s${i}@mail.com,20${i},S,${i},,`),
+    "email,student_number,first_name,last_name",
+    "ana@mail.com,1001,Ana,Lee",
+    "bo@mail.com,1002,Bo,Chan",
+    "cy@mail.com,1003,Cy,Diaz",
+    ...Array.from({ length: 9 }, (_, i) => `s${i}@mail.com,20${i},S,${i}`),
   ].join("\n");
   const roster = expectOk(
     await api().post(`/offerings/${offeringId}/roster`).set(auth(instructor.token)).set("Content-Type", "text/csv").send(csv),
@@ -84,6 +85,17 @@ export async function seedCourse() {
   );
   const proctor = await register("ta@uni.ca", "TA");
   expectOk(await api().post(`/invites/${tokenFromInviteUrl(ta.body.member.inviteUrl)}/accept`).set(auth(proctor.token)), "accept proctor");
+
+  // Seating needs come from the students themselves, when they sign up.
+  for (const [email, needs] of [
+    ["bo@mail.com", { needsAccessible: true }],
+    ["cy@mail.com", { leftHanded: true }],
+  ] as const) {
+    expectOk(
+      await api().post("/auth/register").send({ email, password: "password123", firstName: "X", lastName: "Y", ...needs }),
+      `register ${email}`,
+    );
+  }
 
   const student = await register("ana@mail.com", "Ana Lee");
   const accepted = expectOk(

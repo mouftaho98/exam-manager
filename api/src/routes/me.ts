@@ -10,10 +10,12 @@ import { offeringDto, seatDto, userDto } from "../serializers.js";
 
 export const meRouter = Router();
 
-// People can change their own name. Accessibility settings are set by instructors.
+// People manage their own name and exam seating needs; instructors don't set these.
 const updateMeBody = z.object({
   firstName: z.string().trim().min(1).max(100).optional(),
   lastName: z.string().trim().min(1).max(100).optional(),
+  needsAccessible: z.boolean().optional(), // needs an accessible seat
+  leftHanded: z.boolean().optional(), // wants a left-handed desk
 });
 
 /** The signed-in user and every offering they belong to, with their role in each. */
@@ -39,7 +41,7 @@ meRouter.post("/instructor-request", async (req, res) => {
   res.json({ user: userDto(user) });
 });
 
-/** Update my own name. */
+/** Update my own name or seating needs. */
 meRouter.patch("/", async (req, res) => {
   const user = await prisma.user.update({
     where: { id: currentUser(req).id },
