@@ -9,7 +9,7 @@ import { io as connect, type Socket } from "socket.io-client";
 import request from "supertest";
 import { prisma } from "../src/db.js";
 import { attachRealtime, closeRealtime } from "../src/realtime.js";
-import { app, auth, register, resetDb, tokenFromInviteUrl } from "./helpers.js";
+import { app, auth, register, registerInstructor, resetDb, tokenFromInviteUrl } from "./helpers.js";
 
 describe("live updates over Socket.IO", () => {
   let server: Server;
@@ -40,7 +40,7 @@ describe("live updates over Socket.IO", () => {
     const http = () => request(server);
 
     // Set up an offering with a proctor, a student and a seated exam.
-    const prof = await register("prof@uni.ca");
+    const prof = await registerInstructor("prof@uni.ca");
     const course = await http().post("/courses").set(auth(prof.token)).send({ code: "C1", name: "Course" });
     const offering = await http()
       .post(`/courses/${course.body.course.id}/offerings`)

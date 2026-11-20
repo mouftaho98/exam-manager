@@ -1,14 +1,16 @@
 /**
  * The course catalog (mounted at /courses, behind requireAuth).
  *
- * A course (ECE1779 Cloud Computing) is shared by all its offerings, so
- * any signed-in user can look courses up and add a new one. Each term's
+ * A course (ECE1779 Cloud Computing) is shared by all its offerings. Any
+ * signed-in user can look courses up; only approved instructors can add a
+ * course or start an offering. Each term's
  * students, staff and exams live on an Offering (routes/offerings.ts).
  */
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { currentUser } from "../auth.js";
+import { requireApprovedInstructor } from "../access.js";
 import { conflict, forbidden, notFound } from "../errors.js";
 import { offeringDto } from "../serializers.js";
 
@@ -29,8 +31,9 @@ const offeringBody = z.object({
 
 const courseDto = (c: { id: string; code: string; name: string }) => ({ id: c.id, code: c.code, name: c.name });
 
-/** Add a course to the catalog. 409 `course_exists` (with its id) if the code is taken. */
+/** Add a course to the catalog. Approved instructors only. 409 `course_exists` (with its id) if the code is taken. */
 coursesRouter.post("/", async (req, res) => {
+  await requireApprovedInstructor(currentUser(req).id);
   const body = courseBody.parse(req.body);
   const existing = await prisma.course.findUnique({ where: { code: body.code } });
   if (existing) throw conflict("course_exists", `${body.code} already exists`, { courseId: existing.id });
@@ -84,9 +87,10 @@ coursesRouter.patch("/:courseId", async (req, res) => {
   res.json({ course: courseDto(updated) });
 });
 
-/** Start a new offering (term) of a course. The creator becomes its first instructor. */
+/** Start a new offering (term) of a course. Approved instructors only; the creator becomes its instructor. */
 coursesRouter.post("/:courseId/offerings", async (req, res) => {
   const user = currentUser(req);
+  await requireApprovedInstructor(user.id);
   const body = offeringBody.parse(req.body);
   const course = await prisma.course.findUnique({ where: { id: req.params.courseId } });
   if (!course) throw notFound("Course");

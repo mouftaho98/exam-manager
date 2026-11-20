@@ -6,6 +6,10 @@
  * - any member can view the offering
  * - staff (instructors and proctors) can list members
  * - only instructors can change the offering, invite people or upload a roster
+ *
+ * Whoever starts the offering is its first instructor. Instructors invite
+ * students, proctors or co-instructors and pick the role for each; students
+ * are also invited automatically by the roster upload.
  */
 import { Router } from "express";
 import { z } from "zod";
@@ -102,7 +106,7 @@ offeringsRouter.get("/:offeringId/members", async (req, res) => {
   res.json({ members: members.map((m) => memberDto(m, { includeInvite: me.role === "INSTRUCTOR" })) });
 });
 
-/** Invite one person (student, proctor or co-instructor). They don't need an account yet. */
+/** Invite one person as a student, proctor or co-instructor. They don't need an account yet. */
 offeringsRouter.post("/:offeringId/members", async (req, res) => {
   const offeringId = req.params.offeringId;
   await requireOfferingRole(currentUser(req).id, offeringId, INSTRUCTOR_ONLY);

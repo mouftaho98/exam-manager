@@ -37,6 +37,15 @@ enum MemberStatus {
   ACTIVE // accepted the invite with their account
 }
 
+// Whether a user may create courses and offerings. Anyone can ask at sign-up
+// (PENDING); an admin approves or rejects the request.
+enum InstructorStatus {
+  NONE // never asked
+  PENDING // asked, waiting for an admin
+  APPROVED // can create courses and offerings
+  REJECTED // an admin said no; they can ask again
+}
+
 // In calendar order, so sorting by semester sorts by time within a year.
 enum Semester {
   WINTER
@@ -58,6 +67,8 @@ model User {
   studentNumber   String?          @unique
   needsAccessible Boolean          @default(false) // gets an accessible seat at exams
   leftHanded      Boolean          @default(false) // gets a left-handed desk if there is one
+  instructorStatus InstructorStatus @default(NONE)
+  isAdmin         Boolean          @default(false) // approves instructors; set with src/scripts/make-admin.ts
   createdAt       DateTime         @default(now())
   memberships     OfferingMember[]
 }
