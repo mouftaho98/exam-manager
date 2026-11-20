@@ -1,3 +1,6 @@
+/**
+ * Course invites: look one up, and accept it.
+ */
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { currentUser, requireAuth } from "../auth.js";
@@ -11,12 +14,14 @@ import { memberDto } from "../serializers.js";
 // 3. POST /invites/:token/accept links the course membership to their account.
 export const invitesRouter = Router();
 
+/** Step 1: what is this invite for? Public, so it works before the person signs in. */
 invitesRouter.get("/:token", async (req, res) => {
   const member = await prisma.courseMember.findUnique({
     where: { inviteToken: req.params.token },
     include: { course: true },
   });
   if (!member) throw notFound("Invite");
+  // Lets the web app show "sign in" or "create account".
   const account = await prisma.user.findUnique({ where: { email: member.email }, select: { id: true } });
   res.json({
     email: member.email,
@@ -26,6 +31,7 @@ invitesRouter.get("/:token", async (req, res) => {
   });
 });
 
+/** Step 3: join the course. Requires being signed in with the invited email. */
 invitesRouter.post("/:token/accept", requireAuth, async (req, res) => {
   const user = currentUser(req);
   const member = await prisma.courseMember.findUnique({ where: { inviteToken: String(req.params.token) } });
@@ -34,6 +40,7 @@ invitesRouter.post("/:token/accept", requireAuth, async (req, res) => {
   if (member.email !== user.email.toLowerCase()) {
     throw forbidden(`This invite is for ${member.email}. Sign in with that email to accept it.`);
   }
+  // This account is already in the course under a different invite.
   const alreadyIn = await prisma.courseMember.findFirst({
     where: { courseId: member.courseId, userId: user.id, NOT: { id: member.id } },
   });
@@ -41,6 +48,7 @@ invitesRouter.post("/:token/accept", requireAuth, async (req, res) => {
 
   const updated = await prisma.courseMember.update({
     where: { id: member.id },
+    // Link the account and clear the token, so the link can't be used again.
     data: { userId: user.id, status: "ACTIVE", inviteToken: null, joinedAt: new Date() },
   });
   res.json({ courseId: updated.courseId, member: memberDto(updated) });

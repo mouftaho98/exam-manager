@@ -1,3 +1,6 @@
+/**
+ * The signed-in user's own data (mounted at /me, behind requireAuth).
+ */
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { currentUser } from "../auth.js";
@@ -9,11 +12,13 @@ export const meRouter = Router();
 meRouter.get("/", async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: currentUser(req).id },
+    // Only courses they've joined, not pending invites.
     include: { memberships: { where: { status: "ACTIVE" }, include: { course: true } } },
   });
   if (!user) throw notFound("User");
   res.json({
     user: { id: user.id, email: user.email, name: user.name },
+    // The frontend uses `role` to decide which view to show for each course.
     courses: user.memberships.map((m) => ({
       id: m.course.id,
       code: m.course.code,

@@ -1,3 +1,7 @@
+/**
+ * Integration tests for accounts, courses, invites and roster upload.
+ * They run against a real test database through the HTTP API.
+ */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
 import { api, auth, register, resetDb, tokenFromInviteUrl } from "./helpers.js";

@@ -1,36 +1,47 @@
 // RollCall database schema.
 // Roles are per course: the same user can be an instructor in one course
 // and a student in another, so permissions live on CourseMember, not User.
+//
+// This file is the source of truth for the database. After editing it, run
+// `npm run db:migrate` to create a migration (SQL in prisma/migrations/) and
+// regenerate the typed client used in src/.
 
+// Generates the TypeScript client (`import { PrismaClient } from "@prisma/client"`).
 generator client {
   provider = "prisma-client-js"
 }
 
+// Which database to talk to. The URL comes from the DATABASE_URL env variable.
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
+// What someone can do in a course. Instructors manage everything, proctors
+// run exam day (check-in, moving seats), students see their own seat.
 enum CourseRole {
   INSTRUCTOR
   PROCTOR
   STUDENT
 }
 
+// Whether a course member has linked an account yet.
 enum MemberStatus {
   INVITED // on the roster / invited, has not accepted yet
   ACTIVE // accepted the invite with their account
 }
 
+// A login account. One per person, shared across all their courses.
 model User {
   id           String         @id @default(cuid())
   email        String         @unique // stored lowercase
   name         String
-  passwordHash String
+  passwordHash String // bcrypt hash, never the password itself
   createdAt    DateTime       @default(now())
   memberships  CourseMember[]
 }
 
+// A course, e.g. ECE1779 Fall 2026. Deleting it deletes its members too.
 model Course {
   id        String         @id @default(cuid())
   code      String // e.g. ECE1779
@@ -52,17 +63,18 @@ model CourseMember {
   email           String // stored lowercase; the invite is sent here
   role            CourseRole
   status          MemberStatus     @default(INVITED)
-  inviteToken     String?          @unique
+  inviteToken     String?          @unique // secret in the invite link; cleared once accepted
   studentNumber   String?
   firstName       String?
   lastName        String?
-  needsAccessible Boolean          @default(false)
-  leftHanded      Boolean          @default(false)
+  needsAccessible Boolean          @default(false) // gets an accessible seat at exams
+  leftHanded      Boolean          @default(false) // gets a left-handed desk if there is one
   createdAt       DateTime         @default(now())
   joinedAt        DateTime?
 
+  // A person can only appear once per course, by email, account or student number.
   @@unique([courseId, email])
   @@unique([courseId, userId])
   @@unique([courseId, studentNumber])
-  @@index([userId])
+  @@index([userId]) // fast lookup of "all my courses"
 }
