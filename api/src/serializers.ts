@@ -26,6 +26,8 @@ export function userDto(u: User) {
     studentNumber: u.studentNumber,
     needsAccessible: u.needsAccessible,
     leftHanded: u.leftHanded,
+    instructorStatus: u.instructorStatus,
+    isAdmin: u.isAdmin,
   };
 }
 

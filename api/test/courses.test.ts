@@ -4,7 +4,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
-import { api, auth, register, resetDb, tokenFromInviteUrl } from "./helpers.js";
+import { api, auth, register, registerInstructor, resetDb, tokenFromInviteUrl } from "./helpers.js";
 
 // In order: each test builds on the last.
 describe("accounts, courses, offerings and invites", () => {
@@ -29,7 +29,7 @@ describe("accounts, courses, offerings and invites", () => {
 
   beforeAll(async () => {
     await resetDb();
-    instructor = await register("prof@uni.ca", "Prof Smith");
+    instructor = await registerInstructor("prof@uni.ca", "Prof Smith");
   });
   afterAll(async () => {
     await prisma.$disconnect();
@@ -54,6 +54,28 @@ describe("accounts, courses, offerings and invites", () => {
     expect((await api().post("/auth/login").send({ email: "prof@uni.ca", password: "password123" })).status).toBe(200);
   });
 
+  it("only lets approved instructors add courses; an admin approves requests", async () => {
+    // Asking to teach at sign-up leaves the request pending.
+    const hopeful = await api()
+      .post("/auth/register")
+      .send({ email: "newprof@uni.ca", password: "password123", firstName: "New", lastName: "Prof", wantsToTeach: true });
+    expect(hopeful.body.user.instructorStatus).toBe("PENDING");
+    const token = hopeful.body.token;
+    const blocked = await api().post("/courses").set(auth(token)).send({ code: "MIE100", name: "Dynamics" });
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.error).toMatchObject({ code: "instructor_not_approved", message: expect.stringMatching(/waiting/) });
+
+    // Only admins can see and decide requests.
+    expect((await api().get("/admin/instructor-requests").set(auth(token))).status).toBe(403);
+    const admin = await register("admin@uni.ca");
+    await prisma.user.update({ where: { email: "admin@uni.ca" }, data: { isAdmin: true } });
+    const pending = await api().get("/admin/instructor-requests").set(auth(admin.token));
+    expect(pending.body.users.map((u: { email: string }) => u.email)).toEqual(["newprof@uni.ca"]);
+    const approve = await api().post(`/admin/instructor-requests/${hopeful.body.user.id}/approve`).set(auth(admin.token));
+    expect(approve.body.user.instructorStatus).toBe("APPROVED");
+    expect((await api().post("/courses").set(auth(token)).send({ code: "MIE100", name: "Dynamics" })).status).toBe(201);
+  });
+
   it("adds a course to the catalog once", async () => {
     const res = await api().post("/courses").set(auth(instructor.token)).send({ code: "ece 1779", name: "Cloud Computing" });
     expect(res.status).toBe(201);
@@ -64,6 +86,9 @@ describe("accounts, courses, offerings and invites", () => {
     expect(dup.status).toBe(409);
     expect(dup.body.error).toMatchObject({ code: "course_exists", details: { courseId } });
     expect((await api().get("/courses?q=cloud").set(auth(instructor.token))).body.courses).toHaveLength(1);
+    // Searching is open to everyone.
+    const anyone = await register("browser@mail.com");
+    expect((await api().get("/courses?q=ECE").set(auth(anyone.token))).body.courses).toHaveLength(1);
   });
 
   it("creates an offering with the creator as instructor, once per term", async () => {
@@ -157,7 +182,13 @@ describe("accounts, courses, offerings and invites", () => {
   });
 
   it("a student can be in several offerings with different roles", async () => {
-    // Ana starts her own course (e.g. she teaches it); she is instructor there and student in ECE1779.
+    // Ana also teaches. She asks for instructor access after signing up, and an admin approves it.
+    const asked = await api().post("/me/instructor-request").set(auth(student.token));
+    expect(asked.body.user.instructorStatus).toBe("PENDING");
+    const admin = await api().post("/auth/login").send({ email: "admin@uni.ca", password: "password123" });
+    await api().post(`/admin/instructor-requests/${asked.body.user.id}/approve`).set(auth(admin.body.token));
+
+    // She starts her own course; she is instructor there and student in ECE1779.
     const other = await api().post("/courses").set(auth(student.token)).send({ code: "APS100", name: "Other" });
     await api().post(`/courses/${other.body.course.id}/offerings`).set(auth(student.token)).send({ year: 2026, semester: "FALL" });
     const me = await api().get("/me").set(auth(student.token));
@@ -188,9 +219,16 @@ describe("accounts, courses, offerings and invites", () => {
     expect(asProctor.body.members.every((m: { inviteUrl?: string }) => m.inviteUrl === undefined)).toBe(true);
   });
 
+  it("lets an instructor invite a co-instructor", async () => {
+    const res = await api().post(`/offerings/${offeringId}/members`).set(auth(instructor.token)).send({ email: "co@uni.ca", role: "INSTRUCTOR" });
+    expect(res.status).toBe(201);
+    expect(res.body.member.role).toBe("INSTRUCTOR");
+  });
+
   it("keeps at least one instructor in an offering", async () => {
     const members = await api().get(`/offerings/${offeringId}/members?role=INSTRUCTOR`).set(auth(instructor.token));
-    const me = members.body.members[0];
+    // The co-instructor hasn't accepted yet, so Prof Smith is the only active one.
+    const me = members.body.members.find((m: { email: string }) => m.email === "prof@uni.ca");
     const res = await api().delete(`/offerings/${offeringId}/members/${me.id}`).set(auth(instructor.token));
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe("last_instructor");

@@ -29,6 +29,13 @@ export async function register(email: string, name = email.split("@")[0]) {
   return { token: res.body.token as string, user: res.body.user as { id: string; email: string } };
 }
 
+/** Register someone and approve them as an instructor directly in the database. */
+export async function registerInstructor(email: string, name?: string) {
+  const account = await register(email, name);
+  await prisma.user.update({ where: { email }, data: { instructorStatus: "APPROVED" } });
+  return account;
+}
+
 /** Headers that sign a request in as the owner of `token`. */
 export const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 

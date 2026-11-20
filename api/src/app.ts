@@ -16,6 +16,7 @@ import { meRouter } from "./routes/me.js";
 import { invitesRouter } from "./routes/invites.js";
 import { coursesRouter } from "./routes/courses.js";
 import { offeringsRouter } from "./routes/offerings.js";
+import { adminRouter } from "./routes/admin.js";
 
 /** Create a new, fully configured Express app. */
 export function createApp() {
@@ -55,6 +56,7 @@ export function createApp() {
   app.use("/me", requireAuth, meRouter); // the signed-in user's own data
   app.use("/courses", requireAuth, coursesRouter); // the course catalog
   app.use("/offerings", requireAuth, offeringsRouter); // one term of a course, and its members
+  app.use("/admin", requireAuth, adminRouter); // approving instructors (admins only)
 
   // Anything that didn't match a route above is a 404.
   app.use((_req, _res, next) => next(notFound("Route")));
