@@ -10,7 +10,9 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
   const res = await fetch(`${API_URL}${path}`, { ...options, headers })
   const data = await res.json().catch(() => ({}))
-  if (res.status === 401) {
+  // A 401 with a token means the session expired. Without one (e.g. a wrong
+  // password on the login form) it's a normal error the page should show.
+  if (res.status === 401 && token) {
     localStorage.removeItem('token')
     if (typeof window !== 'undefined') window.location.href = '/login'
     throw new Error('Session expired. Please log in again.')

@@ -129,7 +129,9 @@ export default function ProctorPage() {
     const s = io(API_URL)
     s.emit('joinExam', examId)
     s.on('checkin', (updated: any) => {
-      setAssignments((prev) => prev.map((a) => (a.id === updated.id ? updated : a)))
+      // The event's seat has no room map, so only take the check-in fields;
+      // replacing the whole row would blank the map view.
+      setAssignments((prev) => prev.map((a) => (a.id === updated.id ? { ...a, checkedIn: updated.checkedIn, checkedInAt: updated.checkedInAt } : a)))
     })
     loadAssignments()
     return () => { s.disconnect() }
