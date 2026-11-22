@@ -28,6 +28,11 @@ describe("health checks", () => {
     expect(res.body).toEqual({ error: { code: "not_found", message: "Route not found" } });
   });
 
+  it("unknown routes 404 even without a token", async () => {
+    expect((await api().get("/exams-typo")).status).toBe(404);
+    expect((await api().get("/exams/abc")).status).toBe(401); // real routes still need a token
+  });
+
   it("malformed JSON gets a 400", async () => {
     const res = await api().post("/health").set("Content-Type", "application/json").send("{bad");
     expect(res.status).toBe(400);
