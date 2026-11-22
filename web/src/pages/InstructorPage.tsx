@@ -16,6 +16,7 @@ export default function InstructorPage() {
   const [selectedCourse, setSelectedCourse] = useState<string | null>(null)
   const [csvText, setCsvText] = useState('')
   const [rosterMsg, setRosterMsg] = useState('')
+  const [roster, setRoster] = useState<any[]>([])
   const [rooms, setRooms] = useState<Room[]>([])
   const [roomName, setRoomName] = useState('')
   const [roomRows, setRoomRows] = useState('5')
@@ -54,8 +55,20 @@ export default function InstructorPage() {
       // ignore
     }
   }
+  const loadRoster = async (courseId: string) => {
+    try {
+      const res = await apiFetch<{ roster: any[] }>(`/courses/${courseId}/roster`)
+      setRoster(res.roster)
+    } catch (err) {
+      setRoster([])
+    }
+  }
 
   useEffect(() => { loadCourses(); loadRooms(); loadExams() }, [])
+  useEffect(() => {
+    if (selectedCourse) loadRoster(selectedCourse)
+    else setRoster([])
+  }, [selectedCourse])
 
   const createCourse = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -117,6 +130,7 @@ export default function InstructorPage() {
       })
       setRosterMsg(`Added ${res.added} of ${res.total} entries.`)
       setCsvText('')
+      loadRoster(selectedCourse)
     } catch (err) {
       setRosterMsg(err instanceof Error ? err.message : 'Upload failed')
     }
@@ -188,6 +202,16 @@ export default function InstructorPage() {
                 <Textarea placeholder={"John Doe,john@utoronto.ca\nJane Doe,jane@utoronto.ca"} value={csvText} onChange={(e) => setCsvText(e.target.value)} minRows={4} />
                 <Button mt="sm" onClick={uploadRoster}>Upload</Button>
                 {rosterMsg && <Text size="sm" mt="xs">{rosterMsg}</Text>}
+                {roster.length > 0 && (
+                  <>
+                    <Title order={5} mt="md" mb="xs">Roster ({roster.length})</Title>
+                    <Stack gap={4}>
+                      {roster.map((r: any) => (
+                        <Text key={r.id} size="sm">{r.name} — {r.email}{r.needsAccessible ? ' [Accessible]' : ''}{r.needsLeftHanded ? ' [Left-handed]' : ''}</Text>
+                      ))}
+                    </Stack>
+                  </>
+                )}
               </Card>
             )}
             <Card withBorder padding="md">
