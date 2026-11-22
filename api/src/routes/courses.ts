@@ -61,21 +61,31 @@ router.get("/:id", requireInstructor, async (req, res, next) => {
   }
 });
 
-// Simple CSV parser: expects lines of "name,email" (or header row with name,email)
-function parseRosterCsv(text: string): { name: string; email: string }[] {
+function parseRosterCsv(text: string): { name: string; email: string; needsAccessible: boolean; needsLeftHanded: boolean }[] {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const entries: { name: string; email: string }[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    // skip header
-    if (i === 0 && /name/i.test(line) && /email/i.test(line)) continue;
-    const parts = line.split(",").map((p) => p.trim().replace(/^"|"$/g, ""));
-    if (parts.length >= 2) {
-      // assume name,email
-      entries.push({ name: parts[0], email: parts[1] });
-    } else if (parts.length === 1 && parts[0].includes("@")) {
-      entries.push({ name: parts[0].split("@")[0], email: parts[0] });
-    }
+  const entries: { name: string; email: string; needsAccessible: boolean; needsLeftHanded: boolean }[] = [];
+  let startIdx = 0;
+  let hasHeader = false;
+  let nameIdx = 0, emailIdx = 1, accIdx = -1, lhIdx = -1;
+  if (lines.length > 0 && /name/i.test(lines[0]) && /email/i.test(lines[0])) {
+    hasHeader = true;
+    const headers = lines[0].split(",").map((h) => h.trim().toLowerCase().replace(/^"|"$/g, ""));
+    nameIdx = headers.findIndex((h) => h.includes("name"));
+    emailIdx = headers.findIndex((h) => h.includes("email"));
+    accIdx = headers.findIndex((h) => h.includes("access"));
+    lhIdx = headers.findIndex((h) => h.includes("left"));
+    if (nameIdx < 0) nameIdx = 0;
+    if (emailIdx < 0) emailIdx = 1;
+    startIdx = 1;
+  }
+  for (let i = startIdx; i < lines.length; i++) {
+    const parts = lines[i].split(",").map((p) => p.trim().replace(/^"|"$/g, ""));
+    const name = parts[nameIdx] || "";
+    const email = parts[emailIdx] || (parts[0]?.includes("@") ? parts[0] : "");
+    if (!email) continue;
+    const needsAccessible = accIdx >= 0 ? /^(true|1|yes)$/i.test(parts[accIdx] || "") : false;
+    const needsLeftHanded = lhIdx >= 0 ? /^(true|1|yes)$/i.test(parts[lhIdx] || "") : false;
+    entries.push({ name: name || email.split("@")[0], email, needsAccessible, needsLeftHanded });
   }
   return entries;
 }
@@ -87,9 +97,14 @@ router.post("/:id/roster", requireInstructor, async (req, res, next) => {
     });
     if (!course) throw notFound("Course");
 
-    let entries: { name: string; email: string }[] = [];
+    let entries: { name: string; email: string; needsAccessible?: boolean; needsLeftHanded?: boolean }[] = [];
     if (Array.isArray(req.body)) {
-      entries = req.body.map((e: any) => ({ name: String(e.name || ""), email: String(e.email || "") })).filter((e) => e.email);
+      entries = req.body.map((e: any) => ({
+        name: String(e.name || ""),
+        email: String(e.email || ""),
+        needsAccessible: !!e.needsAccessible,
+        needsLeftHanded: !!e.needsLeftHanded,
+      })).filter((e) => e.email);
     } else if (typeof req.body === "string") {
       entries = parseRosterCsv(req.body);
     } else {
@@ -97,12 +112,17 @@ router.post("/:id/roster", requireInstructor, async (req, res, next) => {
     }
     if (entries.length === 0) throw badRequest("No valid entries found");
 
-    // Upsert-like: create many, skip duplicates by unique constraint handling
     let added = 0;
     for (const e of entries) {
       try {
         await prisma.courseRosterEntry.create({
-          data: { courseId: course.id, name: e.name || e.email, email: e.email.toLowerCase() },
+          data: {
+            courseId: course.id,
+            name: e.name || e.email,
+            email: e.email.toLowerCase(),
+            needsAccessible: !!e.needsAccessible,
+            needsLeftHanded: !!e.needsLeftHanded,
+          },
         });
         added++;
       } catch {
@@ -141,15 +161,34 @@ router.patch("/:id/roster/:entryId", requireInstructor, async (req, res, next) =
       where: { id: req.params.entryId, courseId: course.id },
     });
     if (!entry) throw notFound("Roster entry");
-    const { needsAccessible, needsLeftHanded } = req.body as { needsAccessible?: boolean; needsLeftHanded?: boolean };
+    const { needsAccessible, needsLeftHanded, name, email } = req.body as { needsAccessible?: boolean; needsLeftHanded?: boolean; name?: string; email?: string };
     const updated = await prisma.courseRosterEntry.update({
       where: { id: entry.id },
       data: {
         ...(typeof needsAccessible === "boolean" ? { needsAccessible } : {}),
         ...(typeof needsLeftHanded === "boolean" ? { needsLeftHanded } : {}),
+        ...(typeof name === "string" && name.trim() ? { name: name.trim() } : {}),
+        ...(typeof email === "string" && email.trim() ? { email: email.trim().toLowerCase() } : {}),
       },
     });
     res.json({ entry: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/:id/roster/:entryId", requireInstructor, async (req, res, next) => {
+  try {
+    const course = await prisma.course.findFirst({
+      where: { id: req.params.id, instructorId: req.user.userId },
+    });
+    if (!course) throw notFound("Course");
+    const entry = await prisma.courseRosterEntry.findFirst({
+      where: { id: req.params.entryId, courseId: course.id },
+    });
+    if (!entry) throw notFound("Roster entry");
+    await prisma.courseRosterEntry.delete({ where: { id: entry.id } });
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }

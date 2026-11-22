@@ -135,7 +135,7 @@ export default function InstructorPage() {
       setRosterMsg(err instanceof Error ? err.message : 'Upload failed')
     }
   }
-  const updateRosterEntry = async (entryId: string, field: 'needsAccessible' | 'needsLeftHanded', value: boolean) => {
+  const updateRosterEntry = async (entryId: string, field: 'needsAccessible' | 'needsLeftHanded' | 'name' | 'email', value: boolean | string) => {
     if (!selectedCourse) return
     try {
       await apiFetch(`/courses/${selectedCourse}/roster/${entryId}`, {
@@ -145,6 +145,15 @@ export default function InstructorPage() {
       loadRoster(selectedCourse)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update')
+    }
+  }
+  const deleteRosterEntry = async (entryId: string) => {
+    if (!selectedCourse) return
+    try {
+      await apiFetch(`/courses/${selectedCourse}/roster/${entryId}`, { method: 'DELETE' })
+      loadRoster(selectedCourse)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete')
     }
   }
 
@@ -211,7 +220,7 @@ export default function InstructorPage() {
             {selectedCourse && (
               <Card withBorder padding="md">
                 <Title order={4} mb="sm">Upload roster (CSV: name,email)</Title>
-                <Textarea placeholder={"John Doe,john@utoronto.ca\nJane Doe,jane@utoronto.ca"} value={csvText} onChange={(e) => setCsvText(e.target.value)} minRows={4} />
+                <Textarea placeholder={"name,email,needsAccessible,needsLeftHanded\nJohn Doe,john@utoronto.ca,false,false"} value={csvText} onChange={(e) => setCsvText(e.target.value)} minRows={4} />
                 <Button mt="sm" onClick={uploadRoster}>Upload</Button>
                 {rosterMsg && <Text size="sm" mt="xs">{rosterMsg}</Text>}
                 {roster.length > 0 && (
@@ -228,6 +237,15 @@ export default function InstructorPage() {
                             <Button size="xs" variant={r.needsLeftHanded ? 'filled' : 'light'} onClick={() => updateRosterEntry(r.id, 'needsLeftHanded', !r.needsLeftHanded)}>
                               Left-handed
                             </Button>
+                            <Button size="xs" variant="light" onClick={() => {
+                              const newName = window.prompt('Name', r.name);
+                              if (newName && newName !== r.name) updateRosterEntry(r.id, 'name', newName);
+                            }}>Edit name</Button>
+                            <Button size="xs" variant="light" onClick={() => {
+                              const newEmail = window.prompt('Email', r.email);
+                              if (newEmail && newEmail !== r.email) updateRosterEntry(r.id, 'email', newEmail);
+                            }}>Edit email</Button>
+                            <Button size="xs" color="red" variant="light" onClick={() => { if (window.confirm('Delete this entry?')) deleteRosterEntry(r.id); }}>Delete</Button>
                           </Group>
                         </div>
                       ))}
