@@ -114,13 +114,40 @@ export default function InstructorRoomsPage() {
                   <Button size="xs" variant="subtle" onClick={() => setSelectedRoom(null)}>Close</Button>
                 </Group>
                 <Text size="sm" c="dimmed" mb="sm">Click a seat to cycle: NORMAL → ACCESSIBLE → LEFT_HANDED → BROKEN → NORMAL</Text>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(60px, 1fr))', gap: 8 }}>
-                  {selectedRoom.seats.map((s) => (
-                    <Button key={s.id} size="xs" color={seatColor(s.seatType)} variant={s.seatType === 'NORMAL' ? 'outline' : 'filled'} onClick={() => cycleSeatType(s)} title={`${s.label || ''} (${s.seatType})`}>
-                      {s.label || `${s.row},${s.col}`}
-                    </Button>
-                  ))}
-                </div>
+                {(() => {
+                  const seats = selectedRoom.seats
+                  const maxRow = seats.length ? Math.max(...seats.map((s) => s.row)) : 0
+                  const maxCol = seats.length ? Math.max(...seats.map((s) => s.col)) : 0
+                  const grid: (Seat | null)[][] = []
+                  for (let r = 0; r <= maxRow; r++) {
+                    grid[r] = []
+                    for (let c = 0; c <= maxCol; c++) {
+                      grid[r][c] = seats.find((s) => s.row === r && s.col === c) || null
+                    }
+                  }
+                  return (
+                    <div style={{ overflowX: 'auto' }}>
+                      {grid.map((row, ri) => (
+                        <div key={ri} style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                          {row.map((seat, ci) => (
+                            <Button
+                              key={ci}
+                              size="xs"
+                              color={seat ? seatColor(seat.seatType) : 'gray'}
+                              variant={seat && seat.seatType !== 'NORMAL' ? 'filled' : 'outline'}
+                              onClick={() => seat && cycleSeatType(seat)}
+                              disabled={!seat}
+                              style={{ width: 44, height: 36, padding: 0, opacity: seat ? 1 : 0.3 }}
+                              title={seat ? `${seat.label || ''} (${seat.seatType})` : 'No seat'}
+                            >
+                              {seat ? (seat.label || '·') : ''}
+                            </Button>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
                 <Group mt="sm" gap="xs">
                   <Badge color="gray">NORMAL</Badge>
                   <Badge color="blue">ACCESSIBLE</Badge>

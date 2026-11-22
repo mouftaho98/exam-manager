@@ -93,24 +93,36 @@ export default function StudentPage() {
                       <div style={{ overflowX: 'auto' }}>
                         {grid.map((row, ri) => (
                           <div key={ri} style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-                            {row.map((seat, ci) => (
-                              <div
-                                key={ci}
-                                style={{
-                                  width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                  border: '1px solid #ccc', borderRadius: 4, fontSize: 10,
-                                  backgroundColor: !seat ? '#f0f0f0' : seat.id === selected.seat.id ? '#4dabf7' : seat.seatType === 'BROKEN' ? '#ffcccc' : '#e7f5ff',
-                                  color: seat && seat.id === selected.seat.id ? '#fff' : '#000',
-                                  fontWeight: seat && seat.id === selected.seat.id ? 'bold' : 'normal',
-                                }}
-                                title={seat ? `${seat.label || `R${seat.row}C${seat.col}`} (${seat.seatType})` : 'No seat'}
-                              >
-                                {seat ? (seat.label || '·') : ''}
-                              </div>
-                            ))}
+                            {row.map((seat, ci) => {
+                              const isMine = seat && seat.id === selected.seat.id
+                              return (
+                                <div
+                                  key={ci}
+                                  style={{
+                                    width: 44, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    border: isMine ? '3px solid #1971c2' : '1px solid #ccc', borderRadius: 4, fontSize: 10,
+                                    backgroundColor: !seat ? '#f0f0f0' : seat.seatType === 'BROKEN' ? '#ffe3e3' : seat.seatType === 'ACCESSIBLE' ? '#e7f5ff' : seat.seatType === 'LEFT_HANDED' ? '#f3f0ff' : '#fff',
+                                    color: '#000',
+                                    fontWeight: isMine ? 'bold' : 'normal',
+                                    opacity: seat ? 1 : 0.3,
+                                  }}
+                                  title={seat ? `${seat.label || `R${seat.row}C${seat.col}`} (${seat.seatType})${isMine ? ' — YOUR SEAT' : ''}` : 'No seat'}
+                                >
+                                  {seat ? (seat.label || '·') : ''}
+                                </div>
+                              )
+                            })}
                           </div>
                         ))}
                       </div>
+                      <Group mt="sm" gap="xs">
+                        <Text size="xs">Legend: </Text>
+                        <span style={{ fontSize: 12 }}>⬜ Normal</span>
+                        <span style={{ fontSize: 12 }}>🟦 Accessible</span>
+                        <span style={{ fontSize: 12 }}>🟪 Left-handed</span>
+                        <span style={{ fontSize: 12 }}>🟥 Broken</span>
+                        <span style={{ fontSize: 12, fontWeight: 'bold' }}>🔵 Your seat (thick border)</span>
+                      </Group>
                     </div>
                   )
                 })()}
