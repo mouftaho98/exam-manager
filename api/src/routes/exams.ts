@@ -41,10 +41,11 @@ router.post("/", requireInstructor, async (req, res, next) => {
   }
 });
 
-router.get("/", requireInstructor, async (req, res, next) => {
+router.get("/", requireInstructorOrProctor, async (req, res, next) => {
   try {
+    const where = req.user.role === "INSTRUCTOR" ? { course: { instructorId: req.user.userId } } : {};
     const exams = await prisma.exam.findMany({
-      where: { course: { instructorId: req.user.userId } },
+      where,
       include: { course: true, room: true },
       orderBy: { createdAt: "desc" },
     });

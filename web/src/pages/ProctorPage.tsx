@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AppShell, Button, Container, Group, Stack, Title, TextInput, Alert, Text, Card } from '@mantine/core'
+import { AppShell, Button, Container, Group, Stack, Title, TextInput, Alert, Text, Card, Select } from '@mantine/core'
 import { clearToken, apiFetch } from '../lib/api'
 import { io } from 'socket.io-client'
 
@@ -11,6 +11,7 @@ export default function ProctorPage() {
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
   const [assignments, setAssignments] = useState<any[]>([])
+  const [exams, setExams] = useState<any[]>([])
 
   const logout = () => {
     clearToken()
@@ -41,6 +42,10 @@ export default function ProctorPage() {
   }
 
   useEffect(() => {
+    apiFetch<{ exams: any[] }>('/exams').then((res) => setExams(res.exams)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
     if (!examId) return
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
     const s = io(API_URL)
@@ -64,20 +69,31 @@ export default function ProctorPage() {
         <Container size="sm" py="xl">
           <Stack gap="md">
             <Title order={2}>Proctor</Title>
-            <TextInput label="Exam ID" value={examId} onChange={(e) => setExamId(e.target.value)} placeholder="paste exam id" />
+            <Select
+              label="Exam"
+              placeholder="Select an exam"
+              data={exams.map((ex: any) => ({ value: ex.id, label: `${ex.title} — ${ex.course?.code || ''} (${ex.room?.name || ''})` }))}
+              value={examId || null}
+              onChange={(v) => setExamId(v || '')}
+            />
             <Card withBorder padding="md">
               <Title order={4} mb="sm">Check-in</Title>
               <Stack gap="sm">
                 <TextInput label="Student email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="student@..." />
-                <Button onClick={checkIn}>Check in student</Button>
+                <Button onClick={checkIn} disabled={!examId}>Check in student</Button>
               </Stack>
               {msg && <Alert color="green" mt="sm">{msg}</Alert>}
               {error && <Alert color="red" mt="sm">{error}</Alert>}
             </Card>
             <Card withBorder padding="md">
               <Title order={4} mb="sm">Live dashboard</Title>
-              <Text size="sm" c="dimmed" mb="sm">Enter Exam ID above to load and watch live check-ins.</Text>
-              {assignments.length === 0 && <Text size="sm" c="dimmed">No assignments loaded.</Text>}
+              {assignments.length > 0 && (
+                <Text size="sm" mb="sm">
+                  Checked in: {assignments.filter((a) => a.checkedIn).length} / {assignments.length} (Missing: {assignments.filter((a) => !a.checkedIn).length})
+                </Text>
+              )}
+              {examId && assignments.length === 0 && <Text size="sm" c="dimmed">No assignments loaded (generate seats first).</Text>}
+              {!examId && <Text size="sm" c="dimmed">Select an exam to load the dashboard.</Text>}
               <Stack gap="xs">
                 {assignments.map((a) => (
                   <Group key={a.id} justify="space-between">
