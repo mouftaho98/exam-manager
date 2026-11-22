@@ -1,62 +1,50 @@
+/** Log in, then go back to where the user was headed (`?next=`) or the dashboard. */
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { AppShell, Button, Container, Group, Stack, Text, Title, TextInput, PasswordInput, Alert } from '@mantine/core'
-import { apiFetch, setToken } from '../lib/api'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Alert, Anchor, Button, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core'
+import { api, errorMessage, setToken } from '../lib/api'
+import PublicFrame from './PublicFrame'
 
 export default function LoginPage() {
   const navigate = useNavigate()
-  const [email, setEmail] = useState('')
+  const [params] = useSearchParams()
+  const next = params.get('next') || '/dashboard'
+  const [email, setEmail] = useState(params.get('email') ?? '')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      const res = await apiFetch<{ token: string; user: { role: string } }>('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-      })
+      const res = await api.post<{ token: string }>('/auth/login', { email, password })
       setToken(res.token)
-      const role = res.user.role.toLowerCase()
-      if (role === 'student') navigate('/student')
-      else if (role === 'proctor') navigate('/proctor')
-      else navigate('/instructor')
+      navigate(next, { replace: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed')
+      setError(errorMessage(err))
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <AppShell header={{ height: 60 }} padding="md">
-      <AppShell.Header>
-        <Group h="100%" px="md" justify="space-between">
-          <Title order={3}>RollCall</Title>
-          <Button variant="subtle" onClick={() => navigate('/')}>Home</Button>
-        </Group>
-      </AppShell.Header>
-      <AppShell.Main>
-        <Container size="xs" py="xl">
-          <Stack gap="md">
-            <Title order={2}>Log in</Title>
-            {error && <Alert color="red">{error}</Alert>}
-            <form onSubmit={handleSubmit}>
-              <Stack gap="sm">
-                <TextInput label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-                <PasswordInput label="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-                <Button type="submit" loading={loading} fullWidth>Log in</Button>
-              </Stack>
-            </form>
-            <Text size="sm" c="dimmed">
-              No account? <Button variant="subtle" p={0} onClick={() => navigate('/signup')}>Sign up</Button>
-            </Text>
+    <PublicFrame>
+      <Stack gap="md">
+        <Title order={2}>Log in</Title>
+        {error && <Alert color="red">{error}</Alert>}
+        <form onSubmit={submit}>
+          <Stack gap="sm">
+            <TextInput label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <PasswordInput label="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <Button type="submit" loading={loading} fullWidth>Log in</Button>
           </Stack>
-        </Container>
-      </AppShell.Main>
-    </AppShell>
+        </form>
+        <Text size="sm" c="dimmed">
+          No account? <Anchor component={Link} to={`/signup?${params.toString()}`}>Sign up</Anchor>
+        </Text>
+      </Stack>
+    </PublicFrame>
   )
 }

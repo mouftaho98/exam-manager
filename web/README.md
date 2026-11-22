@@ -1,32 +1,17 @@
-# React + TypeScript + Vite
+# RollCall web app
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + TypeScript + Vite, with Mantine for the UI. It talks to the API in `../api`.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm ci
+VITE_API_URL=http://localhost:3000 npm run dev   # http://localhost:5173
+npm run build                                    # typecheck + production build
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+- `src/lib/api.ts`: the API client (adds the login token, turns errors into `ApiError`).
+- `src/lib/socket.ts`: live exam-day updates over Socket.IO.
+- `src/pages/`: one file per route (see `src/App.tsx`). Roles are per course offering, so everyone shares one dashboard and each page asks the API what you can do there.
+- `src/components/SeatMap.tsx`: draws a room's seats. Used for editing rooms, the student's seat view and the proctor's live seating chart.
+- `src/components/CardScanner.tsx`: scans the barcode on a student ID card with the phone camera. This only works over HTTPS or on localhost.
+
+UI tests live in `../e2e`.
