@@ -9,7 +9,16 @@ import express from "express";
 import cors from "cors";
 import { config } from "./config.js";
 import { prisma } from "./db.js";
+import { requireAuth } from "./auth.js";
 import { errorHandler, notFound } from "./errors.js";
+import { authRouter } from "./routes/auth.js";
+import { meRouter } from "./routes/me.js";
+import { invitesRouter } from "./routes/invites.js";
+import { coursesRouter } from "./routes/courses.js";
+import { roomsRouter } from "./routes/rooms.js";
+import { examsRouter } from "./routes/exams.js";
+import { offeringsRouter } from "./routes/offerings.js";
+import { adminRouter } from "./routes/admin.js";
 
 /** Create a new, fully configured Express app. */
 export function createApp() {
@@ -41,6 +50,19 @@ export function createApp() {
       res.status(503).json({ ok: false });
     }
   });
+
+  // API routes. Each router lives in src/routes/. requireAuth rejects requests
+  // without a valid login token before they reach the router.
+  app.use("/auth", authRouter); // register and log in (public)
+  app.use("/invites", invitesRouter); // GET is public; accept requires auth
+  app.use("/me", requireAuth, meRouter); // the signed-in user's own data
+  app.use("/courses", requireAuth, coursesRouter); // the course catalog
+  app.use("/offerings", requireAuth, offeringsRouter); // one term of a course, and its members
+  app.use("/admin", requireAuth, adminRouter); // approving instructors (admins only)
+  app.use("/rooms", requireAuth, roomsRouter); // room layouts (shared by all courses)
+  // Exams live under both /offerings/:id/exams and /exams/:id, so this router is
+  // mounted at "/". It signs in on its own paths, so unknown routes still 404.
+  app.use("/", examsRouter);
 
   // Anything that didn't match a route above is a 404.
   app.use((_req, _res, next) => next(notFound("Route")));

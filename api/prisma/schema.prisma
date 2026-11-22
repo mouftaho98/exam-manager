@@ -1,4 +1,12 @@
-// RollCall database schema. Tables are added in later changes.
+// RollCall database schema.
+//
+// A Course is the catalog entry (ECE1779 Cloud Computing). An Offering is one
+// run of it (ECE1779, Fall 2026), with its own instructors, proctors and
+// students. Roles are per offering: the same user can teach one offering and
+// be a student in another, so permissions live on OfferingMember, not User.
+//
+// Facts about a person (name, student number, accessibility needs) live on
+// User, so they're the same in every offering.
 //
 // This file is the source of truth for the database. After editing it, run
 // `npm run db:migrate` to create a migration (SQL in prisma/migrations/) and
@@ -13,4 +21,201 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// What someone can do in an offering. Instructors manage everything, proctors
+// run exam day (check-in, moving seats), students see their own seat.
+enum Role {
+  INSTRUCTOR
+  PROCTOR
+  STUDENT
+}
+
+// Whether a member has accepted their invite yet.
+enum MemberStatus {
+  INVITED // on the roster / invited, has not accepted yet
+  ACTIVE // accepted the invite with their account
+}
+
+// Whether a user may create courses and offerings. Anyone can ask at sign-up
+// (PENDING); an admin approves or rejects the request.
+enum InstructorStatus {
+  NONE // never asked
+  PENDING // asked, waiting for an admin
+  APPROVED // can create courses and offerings
+  REJECTED // an admin said no; they can ask again
+}
+
+// In calendar order, so sorting by semester sorts by time within a year.
+enum Semester {
+  WINTER
+  SUMMER
+  FALL
+}
+
+// A person. One per email, shared across all their offerings.
+//
+// A User can exist before the person signs up: uploading a roster creates one
+// for each new email, with no password. When that person registers with the
+// same email, they take over this record (see routes/auth.ts).
+model User {
+  id              String           @id @default(cuid())
+  email           String           @unique // stored lowercase
+  firstName       String?
+  lastName        String?
+  passwordHash    String? // bcrypt hash; null until the person registers
+  studentNumber   String?          @unique
+  needsAccessible Boolean          @default(false) // set by the person; gets an accessible seat at exams
+  leftHanded      Boolean          @default(false) // set by the person; gets a left-handed desk if there is one
+  instructorStatus InstructorStatus @default(NONE)
+  isAdmin         Boolean          @default(false) // approves instructors; set with src/scripts/make-admin.ts
+  createdAt       DateTime         @default(now())
+  memberships     OfferingMember[]
+}
+
+// A course in the catalog, e.g. ECE1779 Cloud Computing. Shared by all its offerings.
+model Course {
+  id          String     @id @default(cuid())
+  code        String     @unique // e.g. ECE1779, stored uppercase
+  name        String
+  createdById String? // the user who added it; they can rename it
+  createdAt   DateTime   @default(now())
+  offerings   Offering[]
+}
+
+// One run of a course, e.g. ECE1779 in Fall 2026. Members belong to an offering.
+// Deleting it deletes its members too.
+model Offering {
+  id        String           @id @default(cuid())
+  courseId  String
+  course    Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  year      Int // e.g. 2026
+  semester  Semester
+  createdAt DateTime         @default(now())
+  members   OfferingMember[]
+  exams     Exam[] // deleted with the offering
+
+  // A course runs at most once per semester.
+  @@unique([courseId, year, semester])
+}
+
+// A person's place in an offering, with their role. Created when an instructor
+// invites someone or uploads a roster; status becomes ACTIVE when the person
+// accepts the invite.
+model OfferingMember {
+  id          String       @id @default(cuid())
+  offeringId  String
+  offering    Offering     @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        Role
+  status      MemberStatus @default(INVITED)
+  inviteToken String?      @unique // secret in the invite link; cleared once accepted
+  createdAt   DateTime     @default(now())
+  joinedAt    DateTime?
+  assignments SeatAssignment[]
+  checkIns    CheckIn[]
+
+  // A person can only be in an offering once.
+  @@unique([offeringId, userId])
+  @@index([userId]) // fast lookup of "all my offerings"
+}
+
+// Rooms are shared across courses and offerings, so a room is only drawn once.
+model Room {
+  id          String     @id @default(cuid())
+  name        String // e.g. "BA 1130"
+  building    String?
+  createdById String? // the user who drew it; they can always edit it
+  createdAt   DateTime   @default(now())
+  seats       Seat[]
+  exams       ExamRoom[]
+}
+
+// Rooms are not rectangles: each row can have a different number of seats,
+// and gaps in `col` are aisles or missing seats. Adjacent = same row and
+// col +/- 1, or same col and row +/- 1.
+model Seat {
+  id          String           @id @default(cuid())
+  roomId      String
+  room        Room             @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  row         Int // 0-based, front of the room first
+  col         Int // 0-based position within the row
+  label       String // e.g. "C7"
+  accessible  Boolean          @default(false) // e.g. wheelchair space
+  leftHanded  Boolean          @default(false) // left-handed desk
+  broken      Boolean          @default(false) // never assigned
+  assignments SeatAssignment[]
+
+  // No two seats in the same spot, and seat labels are unique within a room.
+  @@unique([roomId, row, col])
+  @@unique([roomId, label])
+}
+
+// One sitting of an exam for an offering, e.g. the Fall 2026 midterm. Can use several rooms.
+model Exam {
+  id                 String           @id @default(cuid())
+  offeringId         String
+  offering           Offering         @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  title              String
+  startsAt           DateTime
+  durationMinutes    Int
+  // When seats were last generated; null until the first time.
+  createdAt          DateTime         @default(now())
+  seatingGeneratedAt DateTime?
+  rooms              ExamRoom[]
+  assignments        SeatAssignment[]
+  checkIns           CheckIn[]
+}
+
+// Which rooms an exam uses (many-to-many join table).
+// A room can't be deleted while an exam uses it (onDelete: Restrict).
+model ExamRoom {
+  examId String
+  exam   Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Restrict)
+
+  @@id([examId, roomId])
+}
+
+// One seat per student per exam, one student per seat per exam.
+// checkinCode is what the student's QR code encodes.
+model SeatAssignment {
+  id           String       @id @default(cuid())
+  examId       String
+  exam         Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId    String // the student's OfferingMember id
+  student      OfferingMember @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  seatId       String
+  seat         Seat         @relation(fields: [seatId], references: [id], onDelete: Restrict)
+  roomId       String // copy of seat.roomId, for fast per-room queries
+  checkinCode  String // 6 characters, kept when seating is regenerated
+  manual       Boolean      @default(false) // true when moved by staff
+  updatedAt    DateTime     @updatedAt
+
+  // The database itself guarantees: one seat per student, one student per
+  // seat, and no two students with the same code, all per exam.
+  @@unique([examId, studentId])
+  @@unique([examId, seatId])
+  @@unique([examId, checkinCode])
+  @@index([examId, roomId])
+}
+
+// At most one check-in per student per exam, enforced by the database so
+// retries and simultaneous scans can never double count.
+model CheckIn {
+  id            String       @id @default(cuid())
+  examId        String
+  exam          Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId     String // the student's OfferingMember id
+  student       OfferingMember @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  roomId        String // room where the student was scanned in
+  checkedInById String // user id of the proctor / instructor
+  checkedInAt   DateTime     @default(now())
+
+  // This unique rule is what makes check-in safe to retry.
+
+  @@unique([examId, studentId])
+  @@index([examId, roomId])
 }
