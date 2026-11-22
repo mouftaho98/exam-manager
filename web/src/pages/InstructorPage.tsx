@@ -5,6 +5,7 @@ import { clearToken, apiFetch } from '../lib/api'
 
 type Course = { id: string; code: string; name: string }
 type Room = { id: string; name: string; _count?: { seats: number } }
+type Exam = { id: string; title: string; courseId: string; roomId: string }
 
 export default function InstructorPage() {
   const navigate = useNavigate()
@@ -19,6 +20,10 @@ export default function InstructorPage() {
   const [roomName, setRoomName] = useState('')
   const [roomRows, setRoomRows] = useState('5')
   const [roomCols, setRoomCols] = useState('6')
+  const [exams, setExams] = useState<Exam[]>([])
+  const [examTitle, setExamTitle] = useState('')
+  const [examCourseId, setExamCourseId] = useState('')
+  const [examRoomId, setExamRoomId] = useState('')
 
   const logout = () => {
     clearToken()
@@ -41,8 +46,16 @@ export default function InstructorPage() {
       // ignore
     }
   }
+  const loadExams = async () => {
+    try {
+      const res = await apiFetch<{ exams: Exam[] }>('/exams')
+      setExams(res.exams)
+    } catch (err) {
+      // ignore
+    }
+  }
 
-  useEffect(() => { loadCourses(); loadRooms() }, [])
+  useEffect(() => { loadCourses(); loadRooms(); loadExams() }, [])
 
   const createCourse = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -67,6 +80,29 @@ export default function InstructorPage() {
       loadRooms()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create room')
+    }
+  }
+  const createExam = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    try {
+      await apiFetch('/exams', {
+        method: 'POST',
+        body: JSON.stringify({ courseId: examCourseId, roomId: examRoomId, title: examTitle }),
+      })
+      setExamTitle(''); setExamCourseId(''); setExamRoomId('')
+      loadExams()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create exam')
+    }
+  }
+  const generateAssignments = async (examId: string) => {
+    setError('')
+    try {
+      await apiFetch(`/exams/${examId}/generate`, { method: 'POST' })
+      alert('Assignments generated!')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate')
     }
   }
 
@@ -148,6 +184,27 @@ export default function InstructorPage() {
                 {rosterMsg && <Text size="sm" mt="xs">{rosterMsg}</Text>}
               </Card>
             )}
+            <Card withBorder padding="md">
+              <Title order={4} mb="sm">Exams</Title>
+              <form onSubmit={createExam}>
+                <Stack gap="sm">
+                  <TextInput label="Exam title" placeholder="Midterm" value={examTitle} onChange={(e) => setExamTitle(e.target.value)} required />
+                  <TextInput label="Course ID (paste from list above)" placeholder="course id" value={examCourseId} onChange={(e) => setExamCourseId(e.target.value)} required />
+                  <TextInput label="Room ID (paste from rooms list)" placeholder="room id" value={examRoomId} onChange={(e) => setExamRoomId(e.target.value)} required />
+                  <Button type="submit">Create exam</Button>
+                </Stack>
+              </form>
+              {exams.length > 0 && (
+                <Stack gap="xs" mt="md">
+                  {exams.map((ex) => (
+                    <Group key={ex.id} justify="space-between">
+                      <Text size="sm">{ex.title}</Text>
+                      <Button size="xs" onClick={() => generateAssignments(ex.id)}>Generate seats</Button>
+                    </Group>
+                  ))}
+                </Stack>
+              )}
+            </Card>
           </Stack>
         </Container>
       </AppShell.Main>

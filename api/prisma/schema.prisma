@@ -34,6 +34,7 @@ model Course {
   instructorId String
   instructor  User               @relation(fields: [instructorId], references: [id])
   roster      CourseRosterEntry[]
+  exams       Exam[]
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
@@ -41,12 +42,15 @@ model Course {
 }
 
 model CourseRosterEntry {
-  id        String   @id @default(cuid())
-  courseId  String
-  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  name      String
-  email     String
-  createdAt DateTime @default(now())
+  id              String           @id @default(cuid())
+  courseId        String
+  course          Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  name            String
+  email           String
+  needsAccessible Boolean          @default(false)
+  needsLeftHanded Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  seatAssignments SeatAssignment[]
 
   @@unique([courseId, email])
 }
@@ -64,17 +68,46 @@ model Room {
   createdBy String
   creator   User     @relation(fields: [createdBy], references: [id])
   seats     Seat[]
+  exams     Exam[]
   createdAt DateTime @default(now())
 }
 
 model Seat {
-  id       String   @id @default(cuid())
-  roomId   String
-  room     Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  row      Int
-  col      Int
-  label    String?
-  seatType SeatType @default(NORMAL)
+  id              String           @id @default(cuid())
+  roomId          String
+  room            Room             @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  row             Int
+  col             Int
+  label           String?
+  seatType        SeatType         @default(NORMAL)
+  seatAssignments SeatAssignment[]
 
   @@unique([roomId, row, col])
+}
+
+model Exam {
+  id          String           @id @default(cuid())
+  courseId    String
+  course      Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  roomId      String
+  room        Room             @relation(fields: [roomId], references: [id])
+  title       String
+  scheduledAt DateTime?
+  createdAt   DateTime         @default(now())
+  assignments SeatAssignment[]
+}
+
+model SeatAssignment {
+  id            String           @id @default(cuid())
+  examId        String
+  exam          Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  rosterEntryId String
+  rosterEntry   CourseRosterEntry @relation(fields: [rosterEntryId], references: [id], onDelete: Cascade)
+  seatId        String
+  seat          Seat             @relation(fields: [seatId], references: [id])
+  checkedIn     Boolean          @default(false)
+  checkedInAt   DateTime?
+
+  @@unique([examId, rosterEntryId])
+  @@unique([examId, seatId])
 }
