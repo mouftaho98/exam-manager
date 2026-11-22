@@ -17,7 +17,7 @@ export default defineConfig({
     hookTimeout: 60000,
     // Applies migrations to the test DB before anything runs.
     globalSetup: ["test/global-setup.ts"],
-    // Environment variables the app sees while tests run.
-    env: { DATABASE_URL: testDatabaseUrl },
+    // Environment variables the app sees while tests run. No Redis: tests run one API instance.
+    env: { DATABASE_URL: testDatabaseUrl, JWT_SECRET: "test-secret", REDIS_URL: "" },
   },
 });
