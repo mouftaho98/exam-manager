@@ -18,7 +18,6 @@ function required(name: string, devDefault: string): string {
 }
 
 export const config = {
-  // Port the HTTP server listens on.
   port: Number(process.env.PORT ?? 3000),
   // Secret used to sign login tokens. Anyone with it can forge a login, so keep it secret.
   jwtSecret: required("JWT_SECRET", "dev-only-secret"),
