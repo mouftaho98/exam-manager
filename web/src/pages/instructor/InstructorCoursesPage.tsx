@@ -95,11 +95,11 @@ export default function InstructorCoursesPage() {
   return (
     <AppShell header={{ height: 60 }} padding="md">
       <AppShell.Header>
-        <Group h="100%" px="md" justify="space-between">
-          <Title order={3}>RollCall — Courses</Title>
-          <Group>
-            <Button variant="subtle" onClick={() => navigate('/instructor')}>Back</Button>
-            <Button variant="subtle" onClick={logout}>Log out</Button>
+        <Group h="100%" px="sm" py="xs" justify="space-between" wrap="wrap" gap="xs">
+          <Title order={4}>RollCall — Courses</Title>
+          <Group gap="xs" wrap="wrap">
+            <Button size="xs" variant="subtle" onClick={() => navigate('/instructor')}>Back</Button>
+            <Button size="xs" variant="subtle" onClick={logout}>Log out</Button>
           </Group>
         </Group>
       </AppShell.Header>

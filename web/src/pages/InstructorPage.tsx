@@ -9,9 +9,9 @@ export default function InstructorPage() {
   return (
     <AppShell header={{ height: 60 }} padding="md">
       <AppShell.Header>
-        <Group h="100%" px="md" justify="space-between">
-          <Title order={3}>RollCall — Instructor</Title>
-          <Button variant="subtle" onClick={logout}>Log out</Button>
+        <Group h="100%" px="sm" py="xs" justify="space-between" wrap="wrap" gap="xs">
+          <Title order={4}>RollCall — Instructor</Title>
+          <Button size="xs" variant="subtle" onClick={logout}>Log out</Button>
         </Group>
       </AppShell.Header>
       <AppShell.Main>
