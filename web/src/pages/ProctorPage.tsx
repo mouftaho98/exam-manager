@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AppShell, Button, Container, Group, Stack, Title, Alert, Text, Card, Select, Modal, TextInput } from '@mantine/core'
+import { AppShell, Button, Container, Group, Stack, Title, Alert, Text, Card, Select, Modal, TextInput, SegmentedControl } from '@mantine/core'
 import { clearToken, apiFetch } from '../lib/api'
 import { io } from 'socket.io-client'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
@@ -16,6 +16,7 @@ export default function ProctorPage() {
   const [scanOpen, setScanOpen] = useState(false)
   const [scanError, setScanError] = useState('')
   const [barcodeInput, setBarcodeInput] = useState('')
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list')
   const scannerRef = useRef<Html5Qrcode | null>(null)
 
   const logout = () => {
@@ -195,7 +196,10 @@ export default function ProctorPage() {
               </Stack>
             </Modal>
             <Card withBorder padding="md">
-              <Title order={4} mb="sm">Live dashboard</Title>
+              <Group justify="space-between" mb="sm">
+                <Title order={4}>Live dashboard</Title>
+                {assignments.length > 0 && <SegmentedControl size="xs" value={viewMode} onChange={(v) => setViewMode(v as 'list' | 'map')} data={[{ label: 'List', value: 'list' }, { label: 'Map', value: 'map' }]} />}
+              </Group>
               {assignments.length > 0 && (
                 <Text size="sm" mb="sm">
                   Checked in: {assignments.filter((a) => a.checkedIn).length} / {assignments.length} (Missing: {assignments.filter((a) => !a.checkedIn).length})
@@ -203,14 +207,67 @@ export default function ProctorPage() {
               )}
               {examId && assignments.length === 0 && <Text size="sm" c="dimmed">No assignments loaded (generate seats first).</Text>}
               {!examId && <Text size="sm" c="dimmed">Select an exam to load the dashboard.</Text>}
-              <Stack gap="xs">
-                {assignments.map((a) => (
-                  <Group key={a.id} justify="space-between">
-                    <Text size="sm">{a.rosterEntry?.name} ({a.seat?.label})</Text>
-                    <Text size="sm" c={a.checkedIn ? 'green' : 'red'}>{a.checkedIn ? 'Checked in' : 'Missing'}</Text>
-                  </Group>
-                ))}
-              </Stack>
+              {viewMode === 'list' && (
+                <Stack gap="xs">
+                  {assignments.map((a) => (
+                    <Group key={a.id} justify="space-between">
+                      <Text size="sm">{a.rosterEntry?.name} ({a.seat?.label})</Text>
+                      <Text size="sm" c={a.checkedIn ? 'green' : 'red'}>{a.checkedIn ? 'Checked in' : 'Missing'}</Text>
+                    </Group>
+                  ))}
+                </Stack>
+              )}
+              {viewMode === 'map' && assignments.length > 0 && (() => {
+                const seats: any[] = assignments[0]?.seat?.room?.seats || []
+                if (seats.length === 0) return <Text size="sm" c="dimmed">No seat map available.</Text>
+                const bySeatId = new Map(assignments.map((a: any) => [a.seat?.id, a]))
+                const maxRow = Math.max(...seats.map((s: any) => s.row))
+                const maxCol = Math.max(...seats.map((s: any) => s.col))
+                const grid: any[][] = []
+                for (let r = 0; r <= maxRow; r++) {
+                  grid[r] = []
+                  for (let c = 0; c <= maxCol; c++) {
+                    grid[r][c] = seats.find((s: any) => s.row === r && s.col === c) || null
+                  }
+                }
+                return (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ overflowX: 'auto' }}>
+                      {grid.map((row, ri) => (
+                        <div key={ri} style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                          {row.map((seat, ci) => {
+                            const a = seat ? bySeatId.get(seat.id) as any : null
+                            const checkedIn = a?.checkedIn
+                            return (
+                              <div
+                                key={ci}
+                                style={{
+                                  width: 44, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  border: checkedIn ? '3px solid #2f9e44' : '1px solid #ccc', borderRadius: 4, fontSize: 10,
+                                  backgroundColor: !seat ? '#f0f0f0' : seat.seatType === 'BROKEN' ? '#ffe3e3' : seat.seatType === 'ACCESSIBLE' ? '#e7f5ff' : seat.seatType === 'LEFT_HANDED' ? '#f3f0ff' : '#fff',
+                                  color: '#000',
+                                  opacity: seat ? 1 : 0.3,
+                                }}
+                                title={seat ? `${seat.label || `R${seat.row}C${seat.col}`} (${seat.seatType})${a ? ` - ${a.rosterEntry?.name}: ${checkedIn ? 'checked in' : 'missing'}` : ''}` : 'No seat'}
+                              >
+                                {seat ? (seat.label || '·') : ''}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                    <Group mt="sm" gap="xs" wrap="wrap">
+                      <Text size="xs">Legend:</Text>
+                      <span style={{ fontSize: 12 }}>🟩 Green border = checked in</span>
+                      <span style={{ fontSize: 12 }}>⬜ Normal</span>
+                      <span style={{ fontSize: 12 }}>🟦 Accessible</span>
+                      <span style={{ fontSize: 12 }}>🟪 Left-handed</span>
+                      <span style={{ fontSize: 12 }}>🟥 Broken</span>
+                    </Group>
+                  </div>
+                )
+              })()}
             </Card>
           </Stack>
         </Container>

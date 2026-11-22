@@ -136,7 +136,7 @@ router.get("/:id/assignments", requireInstructorOrProctor, async (req, res, next
     if (!exam) throw notFound("Exam");
     const assignments = await prisma.seatAssignment.findMany({
       where: { examId: exam.id },
-      include: { seat: { include: { room: true } }, rosterEntry: true },
+      include: { seat: { include: { room: { include: { seats: { orderBy: [{ row: 'asc' }, { col: 'asc' }] } } } } }, rosterEntry: true },
       orderBy: { seat: { label: "asc" } },
     });
     res.json({ assignments });
