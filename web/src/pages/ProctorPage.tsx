@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AppShell, Button, Container, Group, Stack, Title, TextInput, Alert, Text, Card, Select } from '@mantine/core'
+import { AppShell, Button, Container, Group, Stack, Title, Alert, Text, Card, Select } from '@mantine/core'
 import { clearToken, apiFetch } from '../lib/api'
 import { io } from 'socket.io-client'
 
 export default function ProctorPage() {
   const navigate = useNavigate()
   const [examId, setExamId] = useState('')
-  const [email, setEmail] = useState('')
+  const [selectedEmail, setSelectedEmail] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
   const [assignments, setAssignments] = useState<any[]>([])
@@ -19,13 +19,15 @@ export default function ProctorPage() {
   }
 
   const checkIn = async () => {
+    if (!selectedEmail) { setError('Select a student'); return }
     setMsg(''); setError('')
     try {
       const res = await apiFetch<{ assignment: any }>(`/exams/${examId}/checkin`, {
         method: 'POST',
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: selectedEmail }),
       })
       setMsg(`Checked in: ${res.assignment.rosterEntry?.name} at seat ${res.assignment.seat?.label}`)
+      setSelectedEmail(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Check-in failed')
     }
@@ -44,6 +46,10 @@ export default function ProctorPage() {
   useEffect(() => {
     apiFetch<{ exams: any[] }>('/exams').then((res) => setExams(res.exams)).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    setSelectedEmail(null)
+  }, [examId])
 
   useEffect(() => {
     if (!examId) return
@@ -79,8 +85,20 @@ export default function ProctorPage() {
             <Card withBorder padding="md">
               <Title order={4} mb="sm">Check-in</Title>
               <Stack gap="sm">
-                <TextInput label="Student email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="student@..." />
-                <Button onClick={checkIn} disabled={!examId}>Check in student</Button>
+                <Select
+                  label="Student (search by name or email)"
+                  placeholder={examId ? "Type to search..." : "Select an exam first"}
+                  searchable
+                  nothingFoundMessage="No matching student"
+                  data={assignments.map((a: any) => ({
+                    value: a.rosterEntry?.email || '',
+                    label: `${a.rosterEntry?.name || ''} (${a.rosterEntry?.email || ''}) — Seat ${a.seat?.label || ''}${a.checkedIn ? ' [checked in]' : ''}`,
+                  }))}
+                  value={selectedEmail}
+                  onChange={setSelectedEmail}
+                  disabled={!examId || assignments.length === 0}
+                />
+                <Button onClick={checkIn} disabled={!examId || !selectedEmail}>Check in student</Button>
               </Stack>
               {msg && <Alert color="green" mt="sm">{msg}</Alert>}
               {error && <Alert color="red" mt="sm">{error}</Alert>}
