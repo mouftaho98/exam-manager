@@ -1,27 +1,26 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AppShell, Button, Container, Group, Stack, Text, Title, TextInput, Card, Alert } from '@mantine/core'
+import { AppShell, Button, Container, Group, Stack, Text, Title, Card, Alert, Select } from '@mantine/core'
 import { clearToken, apiFetch } from '../lib/api'
 
 export default function StudentPage() {
   const navigate = useNavigate()
-  const [examId, setExamId] = useState('')
-  const [assignment, setAssignment] = useState<any>(null)
+  const [assignments, setAssignments] = useState<any[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const logout = () => {
     clearToken()
     navigate('/login')
   }
-  const fetchAssignment = async () => {
-    setError('')
-    setAssignment(null)
-    try {
-      const res = await apiFetch<{ assignment: any }>(`/exams/${examId}/my-assignment`)
-      setAssignment(res.assignment)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Not found')
-    }
-  }
+
+  useEffect(() => {
+    apiFetch<{ assignments: any[] }>('/exams/my/list')
+      .then((res) => setAssignments(res.assignments))
+      .catch(() => setError('Could not load your exams'))
+  }, [])
+
+  const selected = assignments.find((a) => a.exam?.id === selectedId) || null
+
   return (
     <AppShell header={{ height: 60 }} padding="md">
       <AppShell.Header>
@@ -34,16 +33,25 @@ export default function StudentPage() {
         <Container size="sm" py="xl">
           <Stack gap="md">
             <Title order={2}>Student</Title>
-            <Text c="dimmed">Enter your Exam ID to view your seat assignment.</Text>
-            <TextInput label="Exam ID" value={examId} onChange={(e) => setExamId(e.target.value)} placeholder="paste exam id" />
-            <Button onClick={fetchAssignment}>Find my seat</Button>
+            <Text c="dimmed">Select an exam to view your seat assignment.</Text>
             {error && <Alert color="red">{error}</Alert>}
-            {assignment && (
+            <Select
+              label="Your exams"
+              placeholder={assignments.length ? "Select an exam" : "No exams found"}
+              data={assignments.map((a: any) => ({
+                value: a.exam?.id || '',
+                label: `${a.exam?.title || 'Exam'} — ${a.exam?.course?.code || ''} (${a.exam?.room?.name || ''})`,
+              }))}
+              value={selectedId}
+              onChange={setSelectedId}
+              disabled={assignments.length === 0}
+            />
+            {selected && (
               <Card withBorder padding="md">
-                <Text fw={700}>Course: {assignment.exam?.course?.name}</Text>
-                <Text>Room: {assignment.exam?.room?.name}</Text>
-                <Text>Seat: {assignment.seat?.label} ({assignment.seat?.seatType})</Text>
-                <Text>Checked in: {assignment.checkedIn ? 'Yes' : 'No'}</Text>
+                <Text fw={700}>Course: {selected.exam?.course?.name}</Text>
+                <Text>Room: {selected.exam?.room?.name}</Text>
+                <Text>Seat: {selected.seat?.label} ({selected.seat?.seatType})</Text>
+                <Text>Checked in: {selected.checkedIn ? 'Yes' : 'No'}</Text>
               </Card>
             )}
           </Stack>

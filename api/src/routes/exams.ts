@@ -154,6 +154,22 @@ router.post("/:id/checkin", requireInstructorOrProctor, async (req, res, next) =
   }
 });
 
+router.get("/my/list", requireAuth, async (req, res, next) => {
+  try {
+    const userId = (req as any).user?.userId;
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw notFound("User");
+    const assignments = await prisma.seatAssignment.findMany({
+      where: { rosterEntry: { email: user.email.toLowerCase() } },
+      include: { seat: true, exam: { include: { room: true, course: true } }, rosterEntry: true },
+      orderBy: { exam: { createdAt: "desc" } },
+    });
+    res.json({ assignments });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/:id/my-assignment", requireAuth, async (req, res, next) => {
   try {
     const userId = (req as any).user?.userId;
