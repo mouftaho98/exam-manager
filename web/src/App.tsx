@@ -5,6 +5,7 @@ import ProctorPage from './pages/ProctorPage'
 import InstructorPage from './pages/InstructorPage'
 import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
+import ProtectedRoute from './components/ProtectedRoute'
 
 function App() {
   return (
@@ -13,9 +14,30 @@ function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
-        <Route path="/student" element={<StudentPage />} />
-        <Route path="/proctor" element={<ProctorPage />} />
-        <Route path="/instructor" element={<InstructorPage />} />
+        <Route
+          path="/student"
+          element={
+            <ProtectedRoute>
+              <StudentPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/proctor"
+          element={
+            <ProtectedRoute>
+              <ProctorPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/instructor"
+          element={
+            <ProtectedRoute>
+              <InstructorPage />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </BrowserRouter>
   )
