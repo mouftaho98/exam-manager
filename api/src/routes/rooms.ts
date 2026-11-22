@@ -30,7 +30,7 @@ router.post("/", requireInstructor, async (req, res, next) => {
     const room = await prisma.room.create({
       data: {
         name: data.name,
-        createdBy: req.user.userId,
+        createdBy: req.user!.userId,
         seats: {
           create: (() => {
             const specials = new Map<string, string>();
@@ -62,7 +62,7 @@ router.post("/", requireInstructor, async (req, res, next) => {
 router.get("/", requireInstructor, async (req, res, next) => {
   try {
     const rooms = await prisma.room.findMany({
-      where: { createdBy: req.user.userId },
+      where: { createdBy: req.user!.userId },
       orderBy: { createdAt: "desc" },
       include: { _count: { select: { seats: true } } },
     });
@@ -75,7 +75,7 @@ router.get("/", requireInstructor, async (req, res, next) => {
 router.get("/:id", requireInstructor, async (req, res, next) => {
   try {
     const room = await prisma.room.findFirst({
-      where: { id: req.params.id, createdBy: req.user.userId },
+      where: { id: req.params.id, createdBy: req.user!.userId },
       include: { seats: { orderBy: [{ row: "asc" }, { col: "asc" }] } },
     });
     if (!room) throw notFound("Room");
@@ -92,7 +92,7 @@ const updateSeatSchema = z.object({
 router.patch("/:roomId/seats/:seatId", requireInstructor, async (req, res, next) => {
   try {
     const room = await prisma.room.findFirst({
-      where: { id: req.params.roomId, createdBy: req.user.userId },
+      where: { id: req.params.roomId, createdBy: req.user!.userId },
     });
     if (!room) throw notFound("Room");
     const data = updateSeatSchema.parse(req.body);

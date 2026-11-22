@@ -27,9 +27,9 @@ const createExamSchema = z.object({
 router.post("/", requireInstructor, async (req, res, next) => {
   try {
     const data = createExamSchema.parse(req.body);
-    const course = await prisma.course.findFirst({ where: { id: data.courseId, instructorId: req.user.userId } });
+    const course = await prisma.course.findFirst({ where: { id: data.courseId, instructorId: req.user!.userId } });
     if (!course) throw notFound("Course");
-    const rooms = await prisma.room.findMany({ where: { id: { in: data.roomIds }, createdBy: req.user.userId } });
+    const rooms = await prisma.room.findMany({ where: { id: { in: data.roomIds }, createdBy: req.user!.userId } });
     if (rooms.length !== data.roomIds.length) throw notFound("One or more rooms not found");
     const exam = await prisma.exam.create({
       data: {
@@ -47,7 +47,7 @@ router.post("/", requireInstructor, async (req, res, next) => {
 
 router.get("/", requireInstructorOrProctor, async (req, res, next) => {
   try {
-    const where = req.user.role === "INSTRUCTOR" ? { course: { instructorId: req.user.userId } } : {};
+    const where = req.user!.role === "INSTRUCTOR" ? { course: { instructorId: req.user!.userId } } : {};
     const exams = await prisma.exam.findMany({
       where,
       include: { course: true, rooms: { include: { room: true } } },
@@ -62,7 +62,7 @@ router.get("/", requireInstructorOrProctor, async (req, res, next) => {
 router.post("/:id/generate", requireInstructor, async (req, res, next) => {
   try {
     const exam = await prisma.exam.findFirst({
-      where: { id: req.params.id, course: { instructorId: req.user.userId } },
+      where: { id: req.params.id, course: { instructorId: req.user!.userId } },
       include: {
         course: { include: { roster: true } },
         rooms: { include: { room: { include: { seats: true } } } },
@@ -221,7 +221,7 @@ router.get("/:id/my-assignment", requireAuth, async (req, res, next) => {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw notFound("User");
     const assignment = await prisma.seatAssignment.findFirst({
-      where: { examId: req.params.id, rosterEntry: { email: user.email.toLowerCase() } },
+      where: { examId: Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, rosterEntry: { email: user.email.toLowerCase() } },
       include: { seat: { include: { room: { include: { seats: { orderBy: [{ row: 'asc' }, { col: 'asc' }] } } } } }, exam: { include: { rooms: { include: { room: true } }, course: true } }, rosterEntry: true },
     });
     if (!assignment) throw notFound("Assignment");

@@ -27,7 +27,7 @@ router.post("/", requireInstructor, async (req, res, next) => {
       data: {
         code: data.code,
         name: data.name,
-        instructorId: req.user.userId,
+        instructorId: req.user!.userId,
       },
     });
     res.status(201).json({ course });
@@ -39,7 +39,7 @@ router.post("/", requireInstructor, async (req, res, next) => {
 router.get("/", requireInstructor, async (req, res, next) => {
   try {
     const courses = await prisma.course.findMany({
-      where: { instructorId: req.user.userId },
+      where: { instructorId: req.user!.userId },
       orderBy: { createdAt: "desc" },
     });
     res.json({ courses });
@@ -51,7 +51,7 @@ router.get("/", requireInstructor, async (req, res, next) => {
 router.get("/:id", requireInstructor, async (req, res, next) => {
   try {
     const course = await prisma.course.findFirst({
-      where: { id: req.params.id, instructorId: req.user.userId },
+      where: { id: req.params.id, instructorId: req.user!.userId },
       include: { _count: { select: { roster: true } } },
     });
     if (!course) throw notFound("Course");
@@ -93,7 +93,7 @@ function parseRosterCsv(text: string): { name: string; email: string; needsAcces
 router.post("/:id/roster", requireInstructor, async (req, res, next) => {
   try {
     const course = await prisma.course.findFirst({
-      where: { id: req.params.id, instructorId: req.user.userId },
+      where: { id: req.params.id, instructorId: req.user!.userId },
     });
     if (!course) throw notFound("Course");
 
@@ -138,7 +138,7 @@ router.post("/:id/roster", requireInstructor, async (req, res, next) => {
 router.get("/:id/roster", requireInstructor, async (req, res, next) => {
   try {
     const course = await prisma.course.findFirst({
-      where: { id: req.params.id, instructorId: req.user.userId },
+      where: { id: req.params.id, instructorId: req.user!.userId },
     });
     if (!course) throw notFound("Course");
     const roster = await prisma.courseRosterEntry.findMany({
@@ -162,7 +162,7 @@ router.get("/:id/roster", requireInstructor, async (req, res, next) => {
 router.patch("/:id/roster/:entryId", requireInstructor, async (req, res, next) => {
   try {
     const course = await prisma.course.findFirst({
-      where: { id: req.params.id, instructorId: req.user.userId },
+      where: { id: req.params.id, instructorId: req.user!.userId },
     });
     if (!course) throw notFound("Course");
     const entry = await prisma.courseRosterEntry.findFirst({
@@ -186,7 +186,7 @@ router.patch("/:id/roster/:entryId", requireInstructor, async (req, res, next) =
 router.delete("/:id/roster/:entryId", requireInstructor, async (req, res, next) => {
   try {
     const course = await prisma.course.findFirst({
-      where: { id: req.params.id, instructorId: req.user.userId },
+      where: { id: req.params.id, instructorId: req.user!.userId },
     });
     if (!course) throw notFound("Course");
     const entry = await prisma.courseRosterEntry.findFirst({
