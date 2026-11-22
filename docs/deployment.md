@@ -150,6 +150,23 @@ kubectl -n exam-manager get svc web-public -w
 
 Point the web hostname's DNS A record to the external IP, then open `https://$WEB_HOST`, sign up, and confirm the browser console shows no CORS errors. Two web pods use about 50m CPU and 64 MiB in total.
 
+### Staging without a domain (plain HTTP)
+
+Until you have a hostname and certificate, `k8s/plain/` exposes both Services over HTTP on port 80. Browsers block camera access on plain HTTP, so QR scanning won't work, but the typed-email and barcode check-in still do. Create both load balancers first to get their IPs, because each address is needed by the other component.
+
+```sh
+kubectl -n exam-manager apply -f k8s/plain/api-public.yaml -f k8s/plain/web-public.yaml
+kubectl -n exam-manager get svc api-public web-public -w
+```
+
+With `API_IP` and `WEB_IP` from the `EXTERNAL-IP` column, build the web image with `--build-arg VITE_API_URL="http://$API_IP"`. Add `WEB_URL` and `CORS_ORIGIN` as `http://$WEB_IP` to the `api-credentials` Secret and roll out the API as above. Deploy only the Deployment from `k8s/web.yaml`, because the Service in that file is the HTTPS one.
+
+```sh
+awk '/^---$/{exit} {print}' k8s/web.yaml | sed "s|WEB_IMAGE|$WEB_IMAGE|" | kubectl -n exam-manager apply -f -
+```
+
+The web app is then at `http://$WEB_IP`. The starter registry plan allows one repository, so the web image can't have its own repository. Push it as a tag of `exam-manager-api` (for example `web-<commit>`), or upgrade the registry to the Basic plan. Both load balancers are billed while they exist, so delete them with `kubectl -n exam-manager delete svc api-public web-public` when the demo is over.
+
 ## 4. Enable autoscaling and monitoring
 
 The staging cluster already provides the metrics API. On a fresh cluster, install Metrics Server v0.9.1 if it is absent and wait for it to become available.
