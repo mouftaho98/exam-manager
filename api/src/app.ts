@@ -11,6 +11,7 @@ import { config } from "./config.js";
 import { prisma } from "./db.js";
 import { errorHandler, notFound } from "./errors.js";
 import authRoutes from "./routes/auth.js";
+import coursesRoutes from "./routes/courses.js";
 
 /** Create a new, fully configured Express app. */
 export function createApp() {
@@ -34,6 +35,7 @@ export function createApp() {
   });
 
   app.use("/auth", authRoutes);
+  app.use("/courses", coursesRoutes);
 
   app.use((_req, _res, next) => next(notFound("Route")));
   app.use(errorHandler);
