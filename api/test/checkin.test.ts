@@ -88,6 +88,16 @@ describe("check-in and attendance", () => {
     expect(res.status).toBe(201);
   });
 
+  it("can check a student in by scanning their student card (student number)", async () => {
+    const s0 = await prisma.seatAssignment.findFirstOrThrow({ where: { examId, student: { user: { email: "s0@mail.com" } } } });
+    const res = await api().post(`/exams/${examId}/checkins`).set(auth(proctor.token)).send({ studentNumber: "200", roomId: s0.roomId });
+    expect(res.status).toBe(201);
+    expect(res.body.student.email).toBe("s0@mail.com");
+    const unknown = await api().post(`/exams/${examId}/checkins`).set(auth(proctor.token)).send({ studentNumber: "nope", roomId: s0.roomId });
+    expect(unknown.status).toBe(404);
+    expect(unknown.body.error.code).toBe("unknown_student");
+  });
+
   it("refuses to regenerate seating once check-in has started", async () => {
     const res = await api().post(`/exams/${examId}/seating/generate`).set(auth(instructor.token)).send({});
     expect(res.status).toBe(409);
@@ -99,23 +109,23 @@ describe("check-in and attendance", () => {
     const seated = res.body.rooms.flatMap((r: { rows: { seats: { student: { checkedInAt: string | null } | null }[] }[] }) =>
       r.rows.flatMap((row) => row.seats.filter((s) => s.student)),
     );
-    expect(seated.filter((s: { student: { checkedInAt: string | null } }) => s.student.checkedInAt)).toHaveLength(3);
+    expect(seated.filter((s: { student: { checkedInAt: string | null } }) => s.student.checkedInAt)).toHaveLength(4);
   });
 
   it("reports live attendance per room", async () => {
     const res = await api().get(`/exams/${examId}/attendance`).set(auth(proctor.token));
     expect(res.status).toBe(200);
-    expect(res.body.totals).toEqual({ assigned: 12, checkedIn: 3, missing: 9 });
-    expect(res.body.rooms.reduce((n: number, r: { checkedIn: number }) => n + r.checkedIn, 0)).toBe(3);
-    expect(res.body.missing).toHaveLength(9);
+    expect(res.body.totals).toEqual({ assigned: 12, checkedIn: 4, missing: 8 });
+    expect(res.body.rooms.reduce((n: number, r: { checkedIn: number }) => n + r.checkedIn, 0)).toBe(4);
+    expect(res.body.missing).toHaveLength(8);
 
     const detail = await api().get(`/exams/${examId}`).set(auth(proctor.token));
-    expect(detail.body.counts).toEqual({ students: 12, assigned: 12, checkedIn: 3 });
+    expect(detail.body.counts).toEqual({ students: 12, assigned: 12, checkedIn: 4 });
   });
 
   it("can undo a check-in", async () => {
     expect((await api().delete(`/exams/${examId}/checkins/${anaMemberId}`).set(auth(proctor.token))).status).toBe(204);
     const res = await api().get(`/exams/${examId}/attendance`).set(auth(proctor.token));
-    expect(res.body.totals.checkedIn).toBe(2);
+    expect(res.body.totals.checkedIn).toBe(3);
   });
 });

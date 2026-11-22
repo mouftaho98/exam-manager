@@ -43,8 +43,10 @@ const checkinBody = z
     roomId: z.string().min(1),
     code: z.string().trim().min(1).max(20).optional(),
     studentId: z.string().min(1).optional(),
+    // From scanning a student card barcode, which encodes the student number.
+    studentNumber: z.string().trim().min(1).max(50).optional(),
   })
-  .refine((b) => b.code || b.studentId, { message: "Send a check-in code or a studentId" });
+  .refine((b) => b.code || b.studentId || b.studentNumber, { message: "Send a check-in code, a studentId or a studentNumber" });
 
 // The database client inside a transaction (same API as `prisma`).
 type Tx = Prisma.TransactionClient;
@@ -437,11 +439,14 @@ examsRouter.post("/exams/:examId/checkins", async (req, res) => {
   const assignment = await prisma.seatAssignment.findFirst({
     where: body.code
       ? { examId: exam.id, checkinCode: normalizeCheckinCode(body.code) }
-      : { examId: exam.id, studentId: body.studentId },
+      : body.studentNumber
+        ? { examId: exam.id, student: { user: { studentNumber: body.studentNumber } } }
+        : { examId: exam.id, studentId: body.studentId },
     include: { student: { include: { user: true } }, seat: { include: { room: true } } },
   });
   if (!assignment) {
     if (body.code) throw new HttpError(404, "unknown_code", "No student in this exam has that check-in code");
+    if (body.studentNumber) throw new HttpError(404, "unknown_student", "No student in this exam has that student number");
     throw conflict("no_seat", "This student has no seat in this exam");
   }
 
