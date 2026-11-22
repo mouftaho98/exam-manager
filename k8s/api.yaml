@@ -55,6 +55,11 @@ spec:
             requests:
               cpu: 200m
               memory: 128Mi
+            # No CPU limit: the HPA scales on CPU use relative to the request, and a
+            # CPU limit would throttle pods during a check-in spike. The memory
+            # limit stops a leak from taking the node down.
+            limits:
+              memory: 512Mi
           readinessProbe:
             httpGet:
               path: /ready

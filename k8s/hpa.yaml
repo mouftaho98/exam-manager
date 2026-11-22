@@ -9,6 +9,11 @@ spec:
     name: api
   minReplicas: 2
   maxReplicas: 6
+  # Scale up at the default speed. Wait 5 minutes of low load before scaling down,
+  # so pods aren't removed (and sockets dropped) in a lull during an exam.
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
   metrics:
     - type: Resource
       resource:
