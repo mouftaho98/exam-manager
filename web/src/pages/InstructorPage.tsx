@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AppShell, Button, Container, Group, Stack, Text, Title, TextInput, Card, Alert, Textarea } from '@mantine/core'
+import { AppShell, Button, Container, Group, Stack, Text, Title, TextInput, Card, Alert, Textarea, Select } from '@mantine/core'
 import { clearToken, apiFetch } from '../lib/api'
 
 type Course = { id: string; code: string; name: string }
 type Room = { id: string; name: string; _count?: { seats: number } }
-type Exam = { id: string; title: string; courseId: string; roomId: string }
+type Exam = { id: string; title: string; courseId: string; roomId: string; course?: { code: string; name: string }; room?: { name: string } }
 
 export default function InstructorPage() {
   const navigate = useNavigate()
@@ -150,9 +150,12 @@ export default function InstructorPage() {
               {courses.length === 0 && <Text c="dimmed" size="sm">No courses yet.</Text>}
               <Stack gap="xs">
                 {courses.map((c) => (
-                  <Button key={c.id} variant={selectedCourse === c.id ? 'filled' : 'light'} onClick={() => setSelectedCourse(c.id)}>
-                    {c.code} — {c.name}
-                  </Button>
+                  <div key={c.id}>
+                    <Button variant={selectedCourse === c.id ? 'filled' : 'light'} onClick={() => setSelectedCourse(c.id)} fullWidth>
+                      {c.code} — {c.name}
+                    </Button>
+                    <Text size="xs" c="dimmed" mt={2}>ID: {c.id}</Text>
+                  </div>
                 ))}
               </Stack>
             </Card>
@@ -171,7 +174,10 @@ export default function InstructorPage() {
               {rooms.length > 0 && (
                 <Stack gap="xs" mt="md">
                   {rooms.map((r) => (
-                    <Text key={r.id} size="sm">{r.name} ({r._count?.seats ?? 0} seats)</Text>
+                    <div key={r.id}>
+                      <Text size="sm">{r.name} ({r._count?.seats ?? 0} seats)</Text>
+                      <Text size="xs" c="dimmed">ID: {r.id}</Text>
+                    </div>
                   ))}
                 </Stack>
               )}
@@ -189,18 +195,35 @@ export default function InstructorPage() {
               <form onSubmit={createExam}>
                 <Stack gap="sm">
                   <TextInput label="Exam title" placeholder="Midterm" value={examTitle} onChange={(e) => setExamTitle(e.target.value)} required />
-                  <TextInput label="Course ID (paste from list above)" placeholder="course id" value={examCourseId} onChange={(e) => setExamCourseId(e.target.value)} required />
-                  <TextInput label="Room ID (paste from rooms list)" placeholder="room id" value={examRoomId} onChange={(e) => setExamRoomId(e.target.value)} required />
+                  <Select
+                    label="Course"
+                    placeholder="Select course"
+                    data={courses.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` }))}
+                    value={examCourseId || null}
+                    onChange={(v) => setExamCourseId(v || '')}
+                    required
+                  />
+                  <Select
+                    label="Room"
+                    placeholder="Select room"
+                    data={rooms.map((r) => ({ value: r.id, label: r.name }))}
+                    value={examRoomId || null}
+                    onChange={(v) => setExamRoomId(v || '')}
+                    required
+                  />
                   <Button type="submit">Create exam</Button>
                 </Stack>
               </form>
               {exams.length > 0 && (
                 <Stack gap="xs" mt="md">
                   {exams.map((ex) => (
-                    <Group key={ex.id} justify="space-between">
-                      <Text size="sm">{ex.title}</Text>
-                      <Button size="xs" onClick={() => generateAssignments(ex.id)}>Generate seats</Button>
-                    </Group>
+                    <div key={ex.id}>
+                      <Group justify="space-between">
+                        <Text size="sm">{ex.title} — {ex.course?.code || 'Course'} / {ex.room?.name || 'Room'}</Text>
+                        <Button size="xs" onClick={() => generateAssignments(ex.id)}>Generate seats</Button>
+                      </Group>
+                      <Text size="xs" c="dimmed">Exam ID: {ex.id}</Text>
+                    </div>
                   ))}
                 </Stack>
               )}
