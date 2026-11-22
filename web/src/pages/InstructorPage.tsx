@@ -135,6 +135,18 @@ export default function InstructorPage() {
       setRosterMsg(err instanceof Error ? err.message : 'Upload failed')
     }
   }
+  const updateRosterEntry = async (entryId: string, field: 'needsAccessible' | 'needsLeftHanded', value: boolean) => {
+    if (!selectedCourse) return
+    try {
+      await apiFetch(`/courses/${selectedCourse}/roster/${entryId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ [field]: value }),
+      })
+      loadRoster(selectedCourse)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update')
+    }
+  }
 
   return (
     <AppShell header={{ height: 60 }} padding="md">
@@ -207,7 +219,17 @@ export default function InstructorPage() {
                     <Title order={5} mt="md" mb="xs">Roster ({roster.length})</Title>
                     <Stack gap={4}>
                       {roster.map((r: any) => (
-                        <Text key={r.id} size="sm">{r.name} — {r.email}{r.needsAccessible ? ' [Accessible]' : ''}{r.needsLeftHanded ? ' [Left-handed]' : ''}</Text>
+                        <div key={r.id}>
+                          <Text size="sm">{r.name} — {r.email}</Text>
+                          <Group gap="xs">
+                            <Button size="xs" variant={r.needsAccessible ? 'filled' : 'light'} onClick={() => updateRosterEntry(r.id, 'needsAccessible', !r.needsAccessible)}>
+                              Accessible
+                            </Button>
+                            <Button size="xs" variant={r.needsLeftHanded ? 'filled' : 'light'} onClick={() => updateRosterEntry(r.id, 'needsLeftHanded', !r.needsLeftHanded)}>
+                              Left-handed
+                            </Button>
+                          </Group>
+                        </div>
                       ))}
                     </Stack>
                   </>

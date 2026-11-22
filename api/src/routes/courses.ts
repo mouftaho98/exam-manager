@@ -131,4 +131,28 @@ router.get("/:id/roster", requireInstructor, async (req, res, next) => {
   }
 });
 
+router.patch("/:id/roster/:entryId", requireInstructor, async (req, res, next) => {
+  try {
+    const course = await prisma.course.findFirst({
+      where: { id: req.params.id, instructorId: req.user.userId },
+    });
+    if (!course) throw notFound("Course");
+    const entry = await prisma.courseRosterEntry.findFirst({
+      where: { id: req.params.entryId, courseId: course.id },
+    });
+    if (!entry) throw notFound("Roster entry");
+    const { needsAccessible, needsLeftHanded } = req.body as { needsAccessible?: boolean; needsLeftHanded?: boolean };
+    const updated = await prisma.courseRosterEntry.update({
+      where: { id: entry.id },
+      data: {
+        ...(typeof needsAccessible === "boolean" ? { needsAccessible } : {}),
+        ...(typeof needsLeftHanded === "boolean" ? { needsLeftHanded } : {}),
+      },
+    });
+    res.json({ entry: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
