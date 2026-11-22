@@ -40,7 +40,7 @@ export default function StudentPage() {
               placeholder={assignments.length ? "Select an exam" : "No exams found"}
               data={assignments.map((a: any) => ({
                 value: a.exam?.id || '',
-                label: `${a.exam?.title || 'Exam'} — ${a.exam?.course?.code || ''} (${a.exam?.room?.name || ''})`,
+                label: `${a.exam?.title || 'Exam'} — ${a.exam?.course?.code || ''} (${(a.exam?.rooms || []).map((er: any) => er.room?.name).join(', ') || a.seat?.room?.name || ''})`,
               }))}
               value={selectedId}
               onChange={setSelectedId}
@@ -49,7 +49,7 @@ export default function StudentPage() {
             {selected && (
               <Card withBorder padding="md">
                 <Text fw={700}>Course: {selected.exam?.course?.name}</Text>
-                <Text>Room: {selected.exam?.room?.name}</Text>
+                <Text>Room: {selected.seat?.room?.name || (selected.exam?.rooms || []).map((er: any) => er.room?.name).join(', ')}</Text>
                 <Text>Seat: {selected.seat?.label} ({selected.seat?.seatType})</Text>
                 <Text>Checked in: {selected.checkedIn ? 'Yes' : 'No'}</Text>
               </Card>

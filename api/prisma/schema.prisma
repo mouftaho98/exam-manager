@@ -63,13 +63,13 @@ enum SeatType {
 }
 
 model Room {
-  id        String   @id @default(cuid())
+  id        String     @id @default(cuid())
   name      String
   createdBy String
-  creator   User     @relation(fields: [createdBy], references: [id])
+  creator   User       @relation(fields: [createdBy], references: [id])
   seats     Seat[]
-  exams     Exam[]
-  createdAt DateTime @default(now())
+  examRooms ExamRoom[]
+  createdAt DateTime   @default(now())
 }
 
 model Seat {
@@ -85,15 +85,23 @@ model Seat {
   @@unique([roomId, row, col])
 }
 
+model ExamRoom {
+  examId String
+  roomId String
+  exam   Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@id([examId, roomId])
+}
+
 model Exam {
   id          String           @id @default(cuid())
   courseId    String
   course      Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  roomId      String
-  room        Room             @relation(fields: [roomId], references: [id])
   title       String
   scheduledAt DateTime?
   createdAt   DateTime         @default(now())
+  rooms       ExamRoom[]
   assignments SeatAssignment[]
 }
 
@@ -110,4 +118,15 @@ model SeatAssignment {
 
   @@unique([examId, rosterEntryId])
   @@unique([examId, seatId])
+}
+
+model StudentBarcode {
+  id            String   @id @default(cuid())
+  barcode       String   @unique
+  firstName     String
+  lastName      String
+  studentNumber String
+  studentId     String
+  email         String?
+  createdAt     DateTime @default(now())
 }

@@ -20,20 +20,24 @@ function requireInstructorOrProctor(req: any, _res: any, next: any) {
 
 const createExamSchema = z.object({
   courseId: z.string().min(1),
-  roomId: z.string().min(1),
+  roomIds: z.array(z.string().min(1)).min(1),
   title: z.string().min(1),
 });
 
 router.post("/", requireInstructor, async (req, res, next) => {
   try {
     const data = createExamSchema.parse(req.body);
-    // verify course belongs to instructor
     const course = await prisma.course.findFirst({ where: { id: data.courseId, instructorId: req.user.userId } });
     if (!course) throw notFound("Course");
-    const room = await prisma.room.findFirst({ where: { id: data.roomId, createdBy: req.user.userId } });
-    if (!room) throw notFound("Room");
+    const rooms = await prisma.room.findMany({ where: { id: { in: data.roomIds }, createdBy: req.user.userId } });
+    if (rooms.length !== data.roomIds.length) throw notFound("One or more rooms not found");
     const exam = await prisma.exam.create({
-      data: { courseId: data.courseId, roomId: data.roomId, title: data.title },
+      data: {
+        courseId: data.courseId,
+        title: data.title,
+        rooms: { create: data.roomIds.map((roomId) => ({ roomId })) },
+      },
+      include: { course: true, rooms: { include: { room: true } } },
     });
     res.status(201).json({ exam });
   } catch (err) {
@@ -46,7 +50,7 @@ router.get("/", requireInstructorOrProctor, async (req, res, next) => {
     const where = req.user.role === "INSTRUCTOR" ? { course: { instructorId: req.user.userId } } : {};
     const exams = await prisma.exam.findMany({
       where,
-      include: { course: true, room: true },
+      include: { course: true, rooms: { include: { room: true } } },
       orderBy: { createdAt: "desc" },
     });
     res.json({ exams });
@@ -61,7 +65,7 @@ router.post("/:id/generate", requireInstructor, async (req, res, next) => {
       where: { id: req.params.id, course: { instructorId: req.user.userId } },
       include: {
         course: { include: { roster: true } },
-        room: { include: { seats: true } },
+        rooms: { include: { room: { include: { seats: true } } } },
         assignments: true,
       },
     });
@@ -69,7 +73,7 @@ router.post("/:id/generate", requireInstructor, async (req, res, next) => {
     if (exam.assignments.length > 0) throw badRequest("Assignments already generated");
 
     const roster = exam.course.roster;
-    const seats = exam.room.seats.filter((s) => s.seatType !== "BROKEN");
+    const seats = exam.rooms.flatMap((er) => er.room.seats).filter((s) => s.seatType !== "BROKEN");
     if (roster.length > seats.length) throw badRequest(`Not enough seats: ${roster.length} students, ${seats.length} usable seats`);
 
     // shuffle helper
@@ -121,7 +125,7 @@ router.get("/:id/assignments", requireInstructorOrProctor, async (req, res, next
     if (!exam) throw notFound("Exam");
     const assignments = await prisma.seatAssignment.findMany({
       where: { examId: exam.id },
-      include: { seat: true, rosterEntry: true },
+      include: { seat: { include: { room: true } }, rosterEntry: true },
       orderBy: { seat: { label: "asc" } },
     });
     res.json({ assignments });
@@ -138,13 +142,43 @@ router.post("/:id/checkin", requireInstructorOrProctor, async (req, res, next) =
     if (!exam) throw notFound("Exam");
     const assignment = await prisma.seatAssignment.findFirst({
       where: { examId: exam.id, rosterEntry: { email: email.toLowerCase() } },
-      include: { seat: true, rosterEntry: true },
+      include: { seat: { include: { room: true } }, rosterEntry: true },
     });
     if (!assignment) throw notFound("Assignment for that email");
     const updated = await prisma.seatAssignment.update({
       where: { id: assignment.id },
       data: { checkedIn: true, checkedInAt: new Date() },
-      include: { seat: true, rosterEntry: true },
+      include: { seat: { include: { room: true } }, rosterEntry: true },
+    });
+    const io = req.app.get("io");
+    if (io) io.to(`exam:${exam.id}`).emit("checkin", updated);
+    res.json({ assignment: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/:id/checkin-by-barcode", requireInstructorOrProctor, async (req, res, next) => {
+  try {
+    const { barcode } = req.body as { barcode?: string };
+    if (!barcode) throw badRequest("barcode is required");
+    const exam = await prisma.exam.findFirst({ where: { id: req.params.id } });
+    if (!exam) throw notFound("Exam");
+    const barcodeRec = await prisma.studentBarcode.findUnique({ where: { barcode: barcode.trim() } });
+    if (!barcodeRec) throw notFound("Barcode not registered");
+    const email = (barcodeRec.email || `${barcodeRec.studentId}@mail.utoronto.ca`).toLowerCase();
+    const assignment = await prisma.seatAssignment.findFirst({
+      where: { examId: exam.id, rosterEntry: { email } },
+      include: { seat: { include: { room: true } }, rosterEntry: true },
+    });
+    if (!assignment) throw notFound("No assignment found for this student in this exam (email: " + email + ")");
+    if (assignment.checkedIn) {
+      return res.json({ assignment, message: "Already checked in" });
+    }
+    const updated = await prisma.seatAssignment.update({
+      where: { id: assignment.id },
+      data: { checkedIn: true, checkedInAt: new Date() },
+      include: { seat: { include: { room: true } }, rosterEntry: true },
     });
     const io = req.app.get("io");
     if (io) io.to(`exam:${exam.id}`).emit("checkin", updated);
@@ -161,7 +195,7 @@ router.get("/my/list", requireAuth, async (req, res, next) => {
     if (!user) throw notFound("User");
     const assignments = await prisma.seatAssignment.findMany({
       where: { rosterEntry: { email: user.email.toLowerCase() } },
-      include: { seat: true, exam: { include: { room: true, course: true } }, rosterEntry: true },
+      include: { seat: { include: { room: true } }, exam: { include: { rooms: { include: { room: true } }, course: true } }, rosterEntry: true },
       orderBy: { exam: { createdAt: "desc" } },
     });
     res.json({ assignments });
@@ -177,7 +211,7 @@ router.get("/:id/my-assignment", requireAuth, async (req, res, next) => {
     if (!user) throw notFound("User");
     const assignment = await prisma.seatAssignment.findFirst({
       where: { examId: req.params.id, rosterEntry: { email: user.email.toLowerCase() } },
-      include: { seat: true, exam: { include: { room: true, course: true } }, rosterEntry: true },
+      include: { seat: { include: { room: true } }, exam: { include: { rooms: { include: { room: true } }, course: true } }, rosterEntry: true },
     });
     if (!assignment) throw notFound("Assignment");
     res.json({ assignment });

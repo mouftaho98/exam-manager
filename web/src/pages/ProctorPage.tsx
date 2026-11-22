@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AppShell, Button, Container, Group, Stack, Title, Alert, Text, Card, Select } from '@mantine/core'
+import { AppShell, Button, Container, Group, Stack, Title, Alert, Text, Card, Select, Modal } from '@mantine/core'
 import { clearToken, apiFetch } from '../lib/api'
 import { io } from 'socket.io-client'
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 
 export default function ProctorPage() {
   const navigate = useNavigate()
@@ -12,6 +13,9 @@ export default function ProctorPage() {
   const [error, setError] = useState('')
   const [assignments, setAssignments] = useState<any[]>([])
   const [exams, setExams] = useState<any[]>([])
+  const [scanOpen, setScanOpen] = useState(false)
+  const [scanError, setScanError] = useState('')
+  const scannerRef = useRef<Html5Qrcode | null>(null)
 
   const logout = () => {
     clearToken()
@@ -33,6 +37,20 @@ export default function ProctorPage() {
     }
   }
 
+  const checkInByBarcode = async (barcode: string) => {
+    setMsg(''); setError(''); setScanError('')
+    try {
+      const res = await apiFetch<{ assignment: any; message?: string }>(`/exams/${examId}/checkin-by-barcode`, {
+        method: 'POST',
+        body: JSON.stringify({ barcode }),
+      })
+      setMsg(res.message || `Checked in: ${res.assignment.rosterEntry?.name} at seat ${res.assignment.seat?.label}`)
+      setScanOpen(false)
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : 'Check-in failed')
+    }
+  }
+
   const loadAssignments = async () => {
     if (!examId) return
     try {
@@ -49,7 +67,57 @@ export default function ProctorPage() {
 
   useEffect(() => {
     setSelectedEmail(null)
+    setMsg('')
+    setError('')
   }, [examId])
+
+  useEffect(() => {
+    if (!scanOpen) {
+      if (scannerRef.current) {
+        const sc = scannerRef.current
+        scannerRef.current = null
+        sc.stop().then(() => sc.clear()).catch(() => {})
+      }
+      return
+    }
+    setScanError('')
+    const timer = setTimeout(() => {
+      const scanner = new Html5Qrcode('barcode-reader', {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.ITF,
+          Html5QrcodeSupportedFormats.QR_CODE,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+        ],
+        verbose: false,
+      })
+      scannerRef.current = scanner
+      scanner.start(
+        { facingMode: 'environment' },
+        { fps: 20 },
+        (decodedText) => {
+          scanner.stop().then(() => scanner.clear()).catch(() => {})
+          scannerRef.current = null
+          checkInByBarcode(decodedText)
+        },
+        () => {}
+      ).catch((err) => {
+        setScanError('Could not start camera: ' + (err?.message || String(err)))
+      })
+    }, 300)
+    return () => {
+      clearTimeout(timer)
+      if (scannerRef.current) {
+        const sc = scannerRef.current
+        scannerRef.current = null
+        sc.stop().then(() => sc.clear()).catch(() => {})
+      }
+    }
+  }, [scanOpen])
 
   useEffect(() => {
     if (!examId) return
@@ -78,7 +146,7 @@ export default function ProctorPage() {
             <Select
               label="Exam"
               placeholder="Select an exam"
-              data={exams.map((ex: any) => ({ value: ex.id, label: `${ex.title} — ${ex.course?.code || ''} (${ex.room?.name || ''})` }))}
+              data={exams.map((ex: any) => ({ value: ex.id, label: `${ex.title} — ${ex.course?.code || ''} (${(ex.rooms || []).map((er: any) => er.room?.name).join(', ')})` }))}
               value={examId || null}
               onChange={(v) => setExamId(v || '')}
             />
@@ -98,11 +166,21 @@ export default function ProctorPage() {
                   onChange={setSelectedEmail}
                   disabled={!examId || assignments.length === 0}
                 />
-                <Button onClick={checkIn} disabled={!examId || !selectedEmail}>Check in student</Button>
+                <Group>
+                  <Button onClick={checkIn} disabled={!examId || !selectedEmail}>Check in student</Button>
+                  <Button variant="outline" onClick={() => setScanOpen(true)} disabled={!examId}>Scan student card</Button>
+                </Group>
               </Stack>
               {msg && <Alert color="green" mt="sm">{msg}</Alert>}
               {error && <Alert color="red" mt="sm">{error}</Alert>}
             </Card>
+            <Modal opened={scanOpen} onClose={() => setScanOpen(false)} title="Scan student card barcode" size="md">
+              <Stack gap="sm">
+                <Text size="sm" c="dimmed">Point the camera at the barcode on the student card.</Text>
+                <div id="barcode-reader" style={{ width: '100%' }} />
+                {scanError && <Alert color="red">{scanError}</Alert>}
+              </Stack>
+            </Modal>
             <Card withBorder padding="md">
               <Title order={4} mb="sm">Live dashboard</Title>
               {assignments.length > 0 && (
