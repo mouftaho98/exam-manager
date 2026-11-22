@@ -24,8 +24,8 @@ test("login and sign-up pages render, and deep links work", async ({ page }) => 
   await expect(page.getByRole("heading", { name: "Log in" })).toBeVisible();
   await page.goto("/signup");
   await expect(page.getByRole("heading", { name: "Sign up" })).toBeVisible();
-  await page.goto("/instructor");
-  await expect(page).toHaveURL(/\/login$/);
+  await page.goto("/dashboard");
+  await expect(page).toHaveURL(/\/login/);
 });
 
 test("a wrong password is rejected by the live API", async ({ page }) => {

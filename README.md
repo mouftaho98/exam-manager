@@ -51,17 +51,9 @@ RollCall runs on DigitalOcean Kubernetes (DOKS):
 | API | http://209.38.1.216 |
 | API liveness / readiness | http://209.38.1.216/health, http://209.38.1.216/ready |
 
-The web app and the API each sit behind their own DigitalOcean load balancer. Both are plain HTTP for now, so phone cameras (QR / barcode scanning needs HTTPS outside `localhost`) won't work on the live site until HTTPS is set up. Kubernetes manifests and the runbook are in `k8s/` and `docs/deployment.md` (PR #6).
+The web app and the API each sit behind their own DigitalOcean load balancer. Both are plain HTTP for now. Phone cameras only work over HTTPS, so scanning student ID cards with a phone won't work on the live site until HTTPS is set up; typing the student number works everywhere. Kubernetes manifests and the runbook are in `k8s/` and `docs/deployment.md` (PR #6).
 
-### Getting a readable name (free)
-
-Options from cheapest to nicest:
-
-1. **sslip.io / nip.io (free, no sign-up):** http://146-190-191-196.sslip.io already resolves to the web app. Still shows the IP, but it's a real hostname, so it can get a free Let's Encrypt HTTPS certificate.
-2. **DuckDNS (free, sign in with GitHub):** pick a name like `rollcall-exams.duckdns.org` and point it at `146.190.191.196`.
-3. **GitHub Student Developer Pack (free for 1 year):** a `.tech` domain from get.tech or a `.me` from Namecheap (nc.me), e.g. `rollcall.tech`. This is the most human-friendly option. Renewal after the first year is paid, but the course is over by then.
-
-With a real name, the next step is one Ingress (ingress-nginx + cert-manager with Let's Encrypt) serving the web app at `/` and the API at `/api` on the same host. That gives HTTPS (needed for camera scanning) and lets us drop one of the two load balancers.
+**Domain:** we're getting a free `.tech` domain through the GitHub Student Developer Pack. The steps are in [docs/domain.md](docs/domain.md).
 
 ## AI Assistance & Verification (Summary)
 See [ai-session.md](ai-session.md).

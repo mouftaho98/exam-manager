@@ -1,55 +1,201 @@
 /**
  * Shared helpers for the UI tests.
  *
- * The UI is what's under test, so each flow is exercised through the browser
- * at least once. Tests that need data from an earlier step (an exam with
- * generated seats, say) create it through the API instead, which keeps them
- * fast and focused on the screen they're testing.
+ * Every flow is exercised through the browser at least once. Tests that need
+ * data from earlier steps (an exam with seats, say) create it through the API
+ * instead, so each test stays fast and focused on the screen it's testing.
+ * Every test makes its own users with unique emails.
  */
 import { execFileSync } from "node:child_process";
 import { expect, request, type APIRequestContext, type Page } from "@playwright/test";
 
 export const API_URL = "http://localhost:3100";
-export const PASSWORD = "secret123";
+export const DATABASE_URL = process.env.E2E_DATABASE_URL ?? "postgresql://exam:exam@localhost:55432/exam_manager_e2e";
+export const PASSWORD = "secret-pass-123";
 
-export type Role = "STUDENT" | "PROCTOR" | "INSTRUCTOR";
-export type TestUser = { name: string; email: string; password: string; role: Role; token: string; id: string };
+export type TestUser = {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  name: string;
+  password: string;
+  token: string;
+};
 
+let counter = 0;
 /** A short unique suffix so every test gets its own users, courses and rooms. */
 export function uid() {
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  return `${Date.now().toString(36)}${(counter++).toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 }
-
-export function uniqueEmail(prefix: string) {
-  return `${prefix}-${uid()}@e2e.test`;
-}
+export const uniqueEmail = (prefix: string) => `${prefix}-${uid()}@e2e.test`;
+/** Unique, digits-only student number (what a card barcode carries). */
+export const studentNumber = () => `${Date.now()}${Math.floor(Math.random() * 1e4)}`.slice(-12);
 
 /** API client, optionally signed in as `user`. */
-export async function api(user?: TestUser): Promise<APIRequestContext> {
+export async function api(user?: Pick<TestUser, "token">): Promise<APIRequestContext> {
   return request.newContext({
     baseURL: API_URL,
     extraHTTPHeaders: user ? { Authorization: `Bearer ${user.token}` } : {},
   });
 }
 
-async function call<T>(ctx: APIRequestContext, method: "get" | "post" | "patch", path: string, data?: unknown, headers?: Record<string, string>): Promise<T> {
+/** One API call that must succeed. */
+export async function call<T = any>(
+  user: Pick<TestUser, "token"> | undefined,
+  method: "get" | "post" | "patch" | "put" | "delete",
+  path: string,
+  data?: unknown,
+  headers?: Record<string, string>,
+): Promise<T> {
+  const ctx = await api(user);
   const res = await ctx[method](path, { data, headers });
-  if (!res.ok()) throw new Error(`${method.toUpperCase()} ${path} -> ${res.status()} ${await res.text()}`);
-  return (await res.json()) as T;
+  const text = await res.text();
+  await ctx.dispose();
+  if (!res.ok()) throw new Error(`${method.toUpperCase()} ${path} -> ${res.status()} ${text}`);
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
-/** Sign up a user through the API (for tests that aren't about sign-up). */
-export async function signupViaApi(role: Role, name = `${role.toLowerCase()} ${uid()}`): Promise<TestUser> {
-  const email = uniqueEmail(role.toLowerCase());
-  const ctx = await api();
-  const res = await call<{ token: string; user: { id: string } }>(ctx, "post", "/auth/signup", { email, password: PASSWORD, name, role });
-  await ctx.dispose();
-  return { name, email, password: PASSWORD, role, token: res.token, id: res.user.id };
+/** Register an account through the API. */
+export async function register(opts: {
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  wantsToTeach?: boolean;
+  needsAccessible?: boolean;
+  leftHanded?: boolean;
+} = {}): Promise<TestUser> {
+  const firstName = opts.firstName ?? `First${uid()}`;
+  const lastName = opts.lastName ?? "Tester";
+  const email = opts.email ?? uniqueEmail(firstName.toLowerCase());
+  const { email: _e, firstName: _f, lastName: _l, ...flags } = opts;
+  const res = await call<{ token: string; user: { id: string } }>(undefined, "post", "/auth/register", {
+    email, password: PASSWORD, firstName, lastName, ...flags,
+  });
+  return { id: res.user.id, email, firstName, lastName, name: `${firstName} ${lastName}`, password: PASSWORD, token: res.token };
+}
+
+/** Run an API script (src/scripts) against the e2e database. */
+function apiScript(script: string, ...args: string[]) {
+  execFileSync("npx", ["tsx", `src/scripts/${script}.ts`, ...args], {
+    cwd: "../api",
+    env: { ...process.env, DATABASE_URL },
+    stdio: ["ignore", "ignore", "inherit"],
+  });
+}
+
+let adminPromise: Promise<TestUser> | undefined;
+/** One admin per test worker (made with the real make-admin script). */
+export function admin(): Promise<TestUser> {
+  adminPromise ??= (async () => {
+    const user = await register({ firstName: "Ada", lastName: "Admin" });
+    apiScript("make-admin", user.email);
+    return user;
+  })();
+  return adminPromise;
+}
+
+/** An approved instructor: signs up asking to teach, then the admin approves. */
+export async function instructor(opts: { firstName?: string } = {}): Promise<TestUser> {
+  const user = await register({ wantsToTeach: true, firstName: opts.firstName ?? `Prof${uid()}` });
+  await call(await admin(), "post", `/admin/instructor-requests/${user.id}/approve`);
+  return user;
+}
+
+export async function createCourse(owner: TestUser, code = `C${uid()}`.toUpperCase(), name = "Cloud Computing") {
+  return (await call<{ course: { id: string; code: string; name: string } }>(owner, "post", "/courses", { code, name })).course;
+}
+
+export async function createOffering(owner: TestUser, courseId: string, year = 2026, semester = "FALL") {
+  return (await call<{ offering: { id: string; term: string } }>(owner, "post", `/courses/${courseId}/offerings`, { year, semester })).offering;
+}
+
+/** A course with one offering, owned by `owner`. */
+export async function seedOffering(owner?: TestUser) {
+  const prof = owner ?? (await instructor());
+  const course = await createCourse(prof);
+  const offering = await createOffering(prof, course.id);
+  return { prof, course, offering };
+}
+
+export const tokenFrom = (inviteUrl: string) => inviteUrl.split("/invite/")[1];
+
+/** Invite `user` to an offering with `role` and accept it, so they're an active member. */
+export async function join(prof: TestUser, offeringId: string, user: TestUser, role: "STUDENT" | "PROCTOR" | "INSTRUCTOR") {
+  const { member } = await call(prof, "post", `/offerings/${offeringId}/members`, { email: user.email, role });
+  await call(user, "post", `/invites/${tokenFrom(member.inviteUrl)}/accept`);
+  return member as { id: string };
+}
+
+export type Student = TestUser & { studentNumber: string; memberId: string };
+
+/**
+ * Students as they really arrive: uploaded on the roster with a student
+ * number, then they sign up with that email and accept their invite.
+ */
+export async function seedStudents(prof: TestUser, offeringId: string, count: number, needs: { needsAccessible?: boolean; leftHanded?: boolean }[] = []) {
+  const people = Array.from({ length: count }, (_, i) => ({
+    email: uniqueEmail(`student${i}`), number: studentNumber() + i, firstName: `Stu${i}${uid()}`, lastName: "Dent",
+  }));
+  const csv = ["email,student_number,first_name,last_name", ...people.map((p) => `${p.email},${p.number},${p.firstName},${p.lastName}`)].join("\n");
+  const roster = await call<{ invites: { email: string; inviteUrl: string }[] }>(prof, "post", `/offerings/${offeringId}/roster`, csv, { "Content-Type": "text/csv" });
+  const members = await call<{ members: { id: string; email: string }[] }>(prof, "get", `/offerings/${offeringId}/members?role=STUDENT`);
+  const students: Student[] = [];
+  for (const [i, p] of people.entries()) {
+    const user = await register({ email: p.email, firstName: p.firstName, lastName: p.lastName, ...needs[i] });
+    const invite = roster.invites.find((x) => x.email === p.email)!;
+    await call(user, "post", `/invites/${tokenFrom(invite.inviteUrl)}/accept`);
+    students.push({ ...user, studentNumber: p.number, memberId: members.members.find((m) => m.email === p.email)!.id });
+  }
+  return students;
+}
+
+type SeatSpec = { col: number; accessible?: boolean; leftHanded?: boolean; broken?: boolean };
+export type RoomRow = number | SeatSpec[];
+export async function createRoom(staff: TestUser, rows: RoomRow[], name = `Room ${uid()}`) {
+  const { room } = await call(staff, "post", "/rooms", { name, rows: rows.map((seats) => ({ seats })) });
+  return room as { id: string; name: string; capacity: number; rows: { row: number; seats: { id: string; label: string; accessible: boolean; leftHanded: boolean; broken: boolean }[] }[] };
+}
+
+export async function createExam(prof: TestUser, offeringId: string, roomIds: string[], title = `Exam ${uid()}`) {
+  const startsAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+  return (await call<{ exam: { id: string; title: string } }>(prof, "post", `/offerings/${offeringId}/exams`, { title, startsAt, durationMinutes: 120, roomIds })).exam;
+}
+
+export async function generate(prof: TestUser, examId: string, seed?: number) {
+  return call<{ assigned: number; unassigned: unknown[]; warnings: string[] }>(prof, "post", `/exams/${examId}/seating/generate`, seed === undefined ? {} : { seed });
+}
+
+/** Where each student sits: studentId -> { seatId, label, roomId }. */
+export async function seatingOf(staff: TestUser, examId: string) {
+  const seating = await call(staff, "get", `/exams/${examId}/seating`);
+  const map = new Map<string, { seatId: string; label: string; roomId: string; roomName: string; accessible: boolean; leftHanded: boolean }>();
+  for (const room of seating.rooms) for (const row of room.rows) for (const s of row.seats) {
+    if (s.student) map.set(s.student.studentId, { seatId: s.id, label: s.label, roomId: room.id, roomName: room.name, accessible: s.accessible, leftHanded: s.leftHanded });
+  }
+  return map;
+}
+
+/**
+ * Exam day, ready to go: an instructor, an offering with students (signed up
+ * and joined), a proctor, rooms, an exam and generated seating.
+ */
+export async function seedExam(opts: { students?: number; rooms?: RoomRow[][]; needs?: { needsAccessible?: boolean; leftHanded?: boolean }[]; seat?: boolean } = {}) {
+  const { prof, course, offering } = await seedOffering();
+  const students = await seedStudents(prof, offering.id, opts.students ?? 3, opts.needs);
+  const proctor = await register({ firstName: `Proc${uid()}` });
+  await join(prof, offering.id, proctor, "PROCTOR");
+  const rooms = [];
+  for (const rows of opts.rooms ?? [[3, 3]]) rooms.push(await createRoom(prof, rows));
+  const exam = await createExam(prof, offering.id, rooms.map((r) => r.id));
+  if (opts.seat !== false) await generate(prof, exam.id, 42);
+  return { prof, course, offering, students, proctor, rooms, exam };
 }
 
 /** Open `path` already signed in as `user` (skips the login form). */
-export async function openAs(page: Page, user: TestUser, path: string) {
-  await page.addInitScript((token) => window.localStorage.setItem("token", token), user.token);
+export async function openAs(page: Page, user: Pick<TestUser, "token">, path: string) {
+  await page.goto("/");
+  await page.evaluate((token) => localStorage.setItem("token", token), user.token);
   await page.goto(path);
 }
 
@@ -59,89 +205,6 @@ export async function choose(page: Page, label: string | RegExp, option: string 
   await input.click();
   if (search) await input.fill(search);
   await page.getByRole("option", { name: option }).first().click();
-}
-
-export async function setNeeds(user: TestUser, needs: { needsAccessible?: boolean; needsLeftHanded?: boolean }) {
-  const ctx = await api(user);
-  await call(ctx, "patch", "/auth/me", needs);
-  await ctx.dispose();
-}
-
-export async function createCourse(instructor: TestUser, code = `C${uid()}`.toUpperCase(), name = "E2E Course") {
-  const ctx = await api(instructor);
-  const { course } = await call<{ course: { id: string; code: string; name: string } }>(ctx, "post", "/courses", { code, name });
-  await ctx.dispose();
-  return course;
-}
-
-export async function uploadRoster(instructor: TestUser, courseId: string, people: { name: string; email: string }[]) {
-  const ctx = await api(instructor);
-  const csv = ["name,email", ...people.map((p) => `${p.name},${p.email}`)].join("\n");
-  await call(ctx, "post", `/courses/${courseId}/roster`, csv, { "Content-Type": "text/csv" });
-  await ctx.dispose();
-}
-
-type SeatType = "NORMAL" | "LEFT_HANDED" | "ACCESSIBLE" | "BROKEN";
-export async function createRoom(
-  instructor: TestUser,
-  rows: number,
-  cols: number,
-  specialSeats: { row: number; col: number; seatType: SeatType }[] = [],
-  name = `Room ${uid()}`,
-) {
-  const ctx = await api(instructor);
-  const { room } = await call<{ room: { id: string; name: string; seats: { id: string; row: number; col: number; label: string; seatType: SeatType }[] } }>(
-    ctx, "post", "/rooms", { name, rows, cols, specialSeats },
-  );
-  await ctx.dispose();
-  return room;
-}
-
-export async function createExam(instructor: TestUser, courseId: string, roomIds: string[], title = `Exam ${uid()}`) {
-  const ctx = await api(instructor);
-  const { exam } = await call<{ exam: { id: string; title: string } }>(ctx, "post", "/exams", { courseId, roomIds, title });
-  await ctx.dispose();
-  return exam;
-}
-
-export async function generateSeats(instructor: TestUser, examId: string) {
-  const ctx = await api(instructor);
-  const res = await call<{ assignments: { id: string; seatId: string; rosterEntry: { email: string } }[] }>(ctx, "post", `/exams/${examId}/generate`);
-  await ctx.dispose();
-  return res.assignments;
-}
-
-/**
- * Everything exam day needs: an instructor, a course with `students` signed up
- * and on the roster, a room, an exam and generated seats.
- */
-export async function seedExam(opts: { students?: number; rows?: number; cols?: number } = {}) {
-  const instructor = await signupViaApi("INSTRUCTOR");
-  const students: TestUser[] = [];
-  for (let i = 0; i < (opts.students ?? 3); i++) students.push(await signupViaApi("STUDENT", `Student${i} ${uid()}`));
-  const course = await createCourse(instructor);
-  await uploadRoster(instructor, course.id, students);
-  const room = await createRoom(instructor, opts.rows ?? 2, opts.cols ?? 3);
-  const exam = await createExam(instructor, course.id, [room.id]);
-  const assignments = await generateSeats(instructor, exam.id);
-  return { instructor, students, course, room, exam, assignments };
-}
-
-/**
- * Registers a student-card barcode. There's no API or screen for this yet, so
- * the row is inserted straight into the e2e database with Prisma's CLI.
- */
-export function registerBarcode(barcode: string, student: TestUser) {
-  const [firstName, ...rest] = student.name.split(" ");
-  const id = `bc${uid()}`;
-  const sql = `INSERT INTO "StudentBarcode" (id, barcode, "firstName", "lastName", "studentNumber", "studentId", email)
-    VALUES ('${id}', '${barcode}', '${firstName}', '${rest.join(" ") || "-"}', '${barcode}', '${barcode}', '${student.email}');`;
-  execFileSync("npx", ["prisma", "db", "execute", "--stdin", "--schema", "prisma/schema.prisma"], {
-    cwd: "../api",
-    input: sql,
-    env: { ...process.env, DATABASE_URL: process.env.E2E_DATABASE_URL ?? "postgresql://exam:exam@localhost:55432/exam_manager_e2e" },
-    stdio: ["pipe", "ignore", "inherit"],
-  });
 }
 
 export { expect };

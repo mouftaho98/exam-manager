@@ -48,6 +48,8 @@ export default defineConfig({
         JWT_SECRET: "e2e-secret",
         CORS_ORIGIN: "*",
         REDIS_URL: "",
+        // So invite links in the UI point at the test web server.
+        WEB_URL: `http://localhost:${WEB_PORT}`,
       },
     },
     {

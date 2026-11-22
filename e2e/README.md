@@ -1,91 +1,122 @@
 # RollCall UI tests
 
-Playwright tests that drive the real web app in Chromium against a real API and Postgres. Every test signs up its own users with unique emails, so tests don't depend on each other and can run in parallel.
+Playwright tests that drive the real web app in Chromium against the real API and Postgres. Every test signs up its own users with unique emails, so tests don't depend on each other and run in parallel.
 
 ```bash
 npm ci && npx playwright install chromium
 npm test             # local stack: API on :3100, web on :5174 (started for you)
 npm run test:ui      # same, in Playwright's interactive UI
 npm run test:live    # read-only smoke checks against the deployed site
-npm run report       # open the HTML report from the last run
+npm run report       # HTML report from the last run
 ```
 
-Before running, install `api/` and `web/` (`npm ci` in each, plus `npx prisma generate` in `api/`). The tests use `postgresql://exam:exam@localhost:55432/exam_manager_e2e` unless you set `E2E_DATABASE_URL`. Migrations are applied automatically. Locally, an API or web server that's already running on those ports gets reused.
+Before running, install `api/` and `web/` (`npm ci` in each, plus `npx prisma generate` in `api/`). The tests use `postgresql://exam:exam@localhost:55432/exam_manager_e2e` unless `E2E_DATABASE_URL` is set; migrations are applied automatically. Admins are made with the real `make-admin` script. Locally, servers already running on those ports are reused, so stop any old API first.
 
-Tests marked `test.fixme` are flows from the proposal that aren't built yet. They show up as skipped, so the report doubles as a to-do list. Turn one into a real test when the feature lands.
+`test.fixme` marks proposal features that aren't built yet. They show as skipped, so the report doubles as a to-do list.
 
 ## Flows
 
 ### Accounts (`auth.spec.ts`)
 - [x] Home page links to log in and sign up
-- [x] Sign up as student / proctor / instructor lands on the right page
-- [x] Signing up with an email that's taken shows an error
-- [x] Wrong password shows an error on the login page
-- [x] Log in as each role goes to that role's page
-- [x] Signed-out visitors are sent to log in from every protected page
-- [x] Log out clears the session
-- [x] An invalid or expired token sends you back to log in
-- [ ] Students can't open instructor pages (no role check in the UI yet)
-- [ ] Instructor sign-ups wait for admin approval
+- [x] Sign up with first and last name lands on the dashboard
+- [x] An email that already has an account is refused
+- [x] A wrong password shows an error and stays on the login page
+- [x] Email is case-insensitive at login
+- [x] Signed-out visitors go to login, then back to the page they wanted
+- [x] Log out ends the session; an invalid token sends you to login
+- [x] Old role pages from the first UI redirect to the dashboard
 
-### Student profile (`student-profile.spec.ts`)
-- [x] Student sets accessible / left-handed needs, and they persist
-- [x] A student with no exams sees an empty state
+### Instructor approval (`instructors.spec.ts`)
+- [x] Asking to teach at sign-up waits for an admin; the admin approves it and Courses appears
+- [x] A rejected instructor can ask again
+- [x] Instructor access can be requested later from the dashboard
+- [x] Non-admins can't see requests
+- [x] Users who aren't approved can't create courses
 
-### Courses and rosters (`courses.spec.ts`)
-- [x] Instructor creates a course
-- [x] Instructors only see their own courses
-- [x] Upload a roster by pasting CSV, and re-uploading doesn't duplicate people
-- [x] Upload a roster from a CSV file
-- [x] Edit and delete roster entries
-- [x] The roster shows the needs students set themselves
-- [ ] Offerings (year + semester) under a course
-- [ ] Invite proctors / co-instructors and accept the invite link
+### Seating needs (`profile.spec.ts`)
+- [x] Needs chosen at sign-up are saved
+- [x] Students change their own needs on the dashboard, and they persist
+
+### Courses and offerings (`courses.spec.ts`)
+- [x] Create a course (code stored uppercase), then a Fall 2026 offering; it shows on the dashboard
+- [x] A duplicate course code links to the existing course
+- [x] Another approved instructor adds a new term to an existing course
+- [x] The same term can't be added twice (links to the existing one)
+- [x] Search courses by code or name
+- [x] The course page shows my role in each offering
+- [x] Non-members can't open an offering
+
+### People and invites (`members.spec.ts`)
+- [x] Invite a proctor; they sign up from the link (email prefilled) and join
+- [x] An existing account logs in to accept (co-instructor invite)
+- [x] Only the invited person can accept
+- [x] Unknown or used links say they're not valid
+- [x] A new invite link replaces the old one
+- [x] Change someone's role; remove people
+- [x] An offering always keeps one instructor
+- [x] Co-instructors can manage the offering
+- [x] Proctors see people but can't invite or upload rosters; students only see exams
+
+### Roster upload (`roster.spec.ts`)
+- [x] Paste a roster: students are added as invited students with invite links
+- [x] Upload from a file; re-uploading doesn't duplicate anyone
+- [x] Bad rows are skipped and reported by line; a missing email column is explained
+- [x] A rostered student signs up with that email, joins, and their own needs show to the instructor
+- [x] Staff already in the offering aren't added as students
+- [x] Seating-need columns in a roster are ignored
 
 ### Rooms (`rooms.spec.ts`)
-- [x] Create a room and see its seat count
-- [x] Clicking a seat cycles normal → accessible → left-handed → broken, and it's saved
-- [x] Proctors can't load the rooms page data
-- [ ] Rows with different numbers of seats
-- [ ] Custom seat markings
+- [x] Draw a room with rows of different lengths
+- [x] Toggle accessible / left-handed / broken seats; saved; broken seats don't count toward capacity
+- [x] Change the layout until students are seated there
+- [x] Marking an occupied seat broken warns about it
+- [x] Proctors can draw rooms; students can't
+- [x] Someone else's room is view-only
+- [x] Search rooms
+- [ ] Custom seat markings beyond the three built in
 
 ### Exams and seating (`exams.spec.ts`)
-- [x] Create an exam across two rooms and generate seats; generating again is refused
-- [x] Create exam is disabled until a room is picked
-- [x] More students than seats shows an error
-- [x] Accessible and left-handed students get matching seats, broken seats are skipped, nobody shares a seat (checked over 5 random runs)
-- [x] Needs set after the roster upload are still honoured
-- [x] Students and proctors can't create exams or generate seats
-- [ ] Regenerate seating while keeping check-in codes
-- [ ] Exam date/time and duration
+- [x] Create an exam with date, duration and two rooms
+- [x] Generate seating; everyone appears on the map
+- [x] Regenerate (asks first)
+- [x] Students who don't fit are listed and can be seated by hand
+- [x] Add rooms later, then generate
+- [x] Accessible and left-handed students get matching seats; broken seats are never used (5 seeds)
+- [x] A room with no special seats still seats everyone, with a warning
+- [x] Students are spread out when there's space
+- [x] Proctors get exam-day tools but not setup; only instructors create exams
 
-### Student seat lookup (`student-seat.spec.ts`)
-- [x] Student sees course, room, seat and a map with only their seat highlighted
-- [x] Students only see exams they're on the roster for
-- [ ] QR code / personal check-in code
-- [ ] Email when a seat is assigned or changed (stretch goal)
+### Student view (`student.spec.ts`)
+- [x] The dashboard lists my exam with room and seat
+- [x] The exam page shows my seat highlighted on the room map
+- [x] Before seating: "check back"
+- [x] Students only see their own exams and can't read the seating chart
+- [ ] Email when a seat is assigned or changed (stretch goal 1)
 
 ### Exam-day check-in (`checkin.spec.ts`)
-- [x] Proctor checks a student in by searching their name
-- [x] Checking the same student in twice doesn't double count
-- [x] A check-in in one proctor's browser shows up live in another's (Socket.IO)
-- [x] Check in by typing a card barcode; scanning twice says "Already checked in"
-- [x] An unknown barcode shows an error
-- [x] Dashboard lists checked-in vs missing, and the map view survives live updates
+- [x] Type the student number from the ID card; the seat is shown on the room map
+- [x] Enter submits (how USB / phone card readers type)
+- [x] Scanning the same card twice doesn't double count
+- [x] A student at the wrong room is sent to the right one
+- [x] An unknown student number shows an error
+- [x] With several rooms, the proctor must pick theirs first
+- [x] A student without a card is found by name
+- [x] A check-in on one proctor's device shows up live on another's (Socket.IO)
+- [x] Attendance per room (checked in / seated / capacity) and the missing list
+- [x] Undo a check-in
+- [x] Proctors and instructors move a student to an empty seat and swap two students
 - [x] The student sees they're checked in
-- [ ] Scan the student's QR / check-in code
-- [ ] Show the room map with the seat after check-in
-- [ ] Flag a student who's in the wrong room
-- [ ] Proctor moves a student to another seat
-- [ ] Per-room checked in / assigned / capacity on the dashboard
-- [ ] Proctors only see exams for courses they were invited to
+- [x] Seating can't be regenerated after check-in starts
+- [x] Staff of another course can't open the exam
 
 ### Live site (`live/smoke.spec.ts`, read-only)
 - [x] API `/health` and `/ready`
-- [x] Home, log in and sign-up pages load; deep links work
+- [x] Home, log in and sign-up pages load; deep links go to login
 - [x] A wrong password is rejected with a visible error
 
-## Notes
+## Not covered here
 
-- Barcodes have no API or screen yet, so `registerBarcode()` inserts one directly into the e2e database.
-- Camera scanning isn't tested: headless Chromium has no camera, and the code path after a scan is the same as typing the barcode.
+- **Camera scanning.** Headless Chromium has no camera. A scan fills in the same student number as typing it, so the typed path covers the logic.
+- **Live updates across API pods.** These tests run one API. Redis fan-out between pods is checked on the cluster (PR #6).
+- **Load.** Bursty check-in traffic is covered by the k6 test in PR #6.
+- **QR codes.** We decided to check students in with their ID card instead.
