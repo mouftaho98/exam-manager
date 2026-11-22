@@ -38,17 +38,14 @@ export default function HomePage() {
               <Stack gap="sm">
                 <Title order={4}>Get started</Title>
                 <Text size="sm" c="dimmed">
-                  Choose your role to continue.
+                  Sign in or create an account to continue.
                 </Text>
                 <Stack gap="sm">
-                  <Button fullWidth variant="filled" onClick={() => navigate('/student')}>
-                    I&apos;m a Student
+                  <Button fullWidth variant="filled" onClick={() => navigate('/login')}>
+                    Log in
                   </Button>
-                  <Button fullWidth variant="light" onClick={() => navigate('/proctor')}>
-                    I&apos;m a Proctor
-                  </Button>
-                  <Button fullWidth variant="outline" onClick={() => navigate('/instructor')}>
-                    I&apos;m an Instructor
+                  <Button fullWidth variant="outline" onClick={() => navigate('/signup')}>
+                    Sign up
                   </Button>
                 </Stack>
               </Stack>
