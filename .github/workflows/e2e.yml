@@ -1,0 +1,112 @@
+name: UI tests
+
+# Separate from web.yml (PR #6), which builds the web Docker image.
+# Builds the frontend and runs the Playwright UI tests against a real API and
+# Postgres on every PR that touches the web app, the API or the tests.
+on:
+  pull_request:
+    paths: ["web/**", "api/**", "e2e/**", ".github/workflows/e2e.yml"]
+  push:
+    branches: [main]
+    paths: ["web/**", "api/**", "e2e/**", ".github/workflows/e2e.yml"]
+  # Run by hand from the Actions tab; "live" also checks the deployed site.
+  workflow_dispatch:
+    inputs:
+      live:
+        description: "Also run the read-only smoke tests against the live site"
+        type: boolean
+        default: false
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Typecheck and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      # `build` runs `tsc -b` first, so type errors fail here.
+      - run: npm run build
+
+  e2e:
+    name: Playwright UI tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: exam
+          POSTGRES_PASSWORD: exam
+          POSTGRES_DB: exam_manager_e2e
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U exam"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      E2E_DATABASE_URL: postgresql://exam:exam@localhost:5432/exam_manager_e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            api/package-lock.json
+            web/package-lock.json
+            e2e/package-lock.json
+      - name: Install API
+        working-directory: api
+        run: npm ci && npx prisma generate
+      - name: Install web
+        working-directory: web
+        run: npm ci
+      - name: Install Playwright
+        working-directory: e2e
+        run: npm ci && npx playwright install --with-deps chromium
+      - name: Typecheck tests
+        working-directory: e2e
+        run: npx tsc -p .
+      # Playwright starts the API (port 3100) and Vite (port 5174) itself.
+      - name: Run UI tests
+        working-directory: e2e
+        run: npx playwright test
+      - name: Upload report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          retention-days: 7
+
+  live:
+    name: Smoke test the live site
+    if: github.event_name == 'workflow_dispatch' && inputs.live
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - run: npm ci && npx playwright install --with-deps chromium
+      - run: npm run test:live
