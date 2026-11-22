@@ -145,7 +145,15 @@ router.get("/:id/roster", requireInstructor, async (req, res, next) => {
       where: { courseId: course.id },
       orderBy: { name: "asc" },
     });
-    res.json({ roster });
+    const emails = roster.map((r) => r.email.toLowerCase());
+    const users = await prisma.user.findMany({ where: { email: { in: emails } }, select: { email: true, needsAccessible: true, needsLeftHanded: true } });
+    const needMap = new Map(users.map((u) => [u.email.toLowerCase(), { needsAccessible: u.needsAccessible, needsLeftHanded: u.needsLeftHanded }]));
+    const rosterWithNeeds = roster.map((r) => ({
+      ...r,
+      needsAccessible: needMap.get(r.email.toLowerCase())?.needsAccessible ?? false,
+      needsLeftHanded: needMap.get(r.email.toLowerCase())?.needsLeftHanded ?? false,
+    }));
+    res.json({ roster: rosterWithNeeds });
   } catch (err) {
     next(err);
   }
@@ -161,12 +169,10 @@ router.patch("/:id/roster/:entryId", requireInstructor, async (req, res, next) =
       where: { id: req.params.entryId, courseId: course.id },
     });
     if (!entry) throw notFound("Roster entry");
-    const { needsAccessible, needsLeftHanded, name, email } = req.body as { needsAccessible?: boolean; needsLeftHanded?: boolean; name?: string; email?: string };
+    const { name, email } = req.body as { name?: string; email?: string };
     const updated = await prisma.courseRosterEntry.update({
       where: { id: entry.id },
       data: {
-        ...(typeof needsAccessible === "boolean" ? { needsAccessible } : {}),
-        ...(typeof needsLeftHanded === "boolean" ? { needsLeftHanded } : {}),
         ...(typeof name === "string" && name.trim() ? { name: name.trim() } : {}),
         ...(typeof email === "string" && email.trim() ? { email: email.trim().toLowerCase() } : {}),
       },

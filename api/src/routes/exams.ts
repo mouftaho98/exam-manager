@@ -76,15 +76,26 @@ router.post("/:id/generate", requireInstructor, async (req, res, next) => {
     const seats = exam.rooms.flatMap((er) => er.room.seats).filter((s) => s.seatType !== "BROKEN");
     if (roster.length > seats.length) throw badRequest(`Not enough seats: ${roster.length} students, ${seats.length} usable seats`);
 
+    // look up user needs by email
+    const emails = roster.map((r) => r.email.toLowerCase());
+    const users = await prisma.user.findMany({ where: { email: { in: emails } }, select: { email: true, needsAccessible: true, needsLeftHanded: true } });
+    const needMap = new Map(users.map((u) => [u.email.toLowerCase(), { needsAccessible: u.needsAccessible, needsLeftHanded: u.needsLeftHanded }]));
+
     // shuffle helper
     const shuffle = <T,>(arr: T[]) => arr.sort(() => Math.random() - 0.5);
     const accessibleSeats = shuffle(seats.filter((s) => s.seatType === "ACCESSIBLE"));
     const leftHandedSeats = shuffle(seats.filter((s) => s.seatType === "LEFT_HANDED"));
     const normalSeats = shuffle(seats.filter((s) => s.seatType === "NORMAL"));
 
-    const needsAccessible = shuffle(roster.filter((r) => r.needsAccessible));
-    const needsLeftHanded = shuffle(roster.filter((r) => r.needsLeftHanded && !r.needsAccessible));
-    const others = shuffle(roster.filter((r) => !r.needsAccessible && !r.needsLeftHanded));
+    const needsAccessible = shuffle(roster.filter((r) => (needMap.get(r.email.toLowerCase())?.needsAccessible)));
+    const needsLeftHanded = shuffle(roster.filter((r) => {
+      const n = needMap.get(r.email.toLowerCase());
+      return n?.needsLeftHanded && !n?.needsAccessible;
+    }));
+    const others = shuffle(roster.filter((r) => {
+      const n = needMap.get(r.email.toLowerCase());
+      return !n?.needsAccessible && !n?.needsLeftHanded;
+    }));
 
     const assignments: { rosterEntryId: string; seatId: string }[] = [];
     // assign accessible
@@ -195,7 +206,7 @@ router.get("/my/list", requireAuth, async (req, res, next) => {
     if (!user) throw notFound("User");
     const assignments = await prisma.seatAssignment.findMany({
       where: { rosterEntry: { email: user.email.toLowerCase() } },
-      include: { seat: { include: { room: true } }, exam: { include: { rooms: { include: { room: true } }, course: true } }, rosterEntry: true },
+      include: { seat: { include: { room: { include: { seats: { orderBy: [{ row: 'asc' }, { col: 'asc' }] } } } } }, exam: { include: { rooms: { include: { room: true } }, course: true } }, rosterEntry: true },
       orderBy: { exam: { createdAt: "desc" } },
     });
     res.json({ assignments });
@@ -211,7 +222,7 @@ router.get("/:id/my-assignment", requireAuth, async (req, res, next) => {
     if (!user) throw notFound("User");
     const assignment = await prisma.seatAssignment.findFirst({
       where: { examId: req.params.id, rosterEntry: { email: user.email.toLowerCase() } },
-      include: { seat: { include: { room: true } }, exam: { include: { rooms: { include: { room: true } }, course: true } }, rosterEntry: true },
+      include: { seat: { include: { room: { include: { seats: { orderBy: [{ row: 'asc' }, { col: 'asc' }] } } } } }, exam: { include: { rooms: { include: { room: true } }, course: true } }, rosterEntry: true },
     });
     if (!assignment) throw notFound("Assignment");
     res.json({ assignment });

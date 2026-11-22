@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AppShell, Button, Container, Group, Stack, Text, Title, TextInput, Card, Alert } from '@mantine/core'
+import { AppShell, Button, Container, Group, Stack, Text, Title, TextInput, Card, Alert, Badge } from '@mantine/core'
 import { clearToken, apiFetch } from '../../lib/api'
 
 type Room = { id: string; name: string; _count?: { seats: number } }
+type Seat = { id: string; row: number; col: number; label: string | null; seatType: string }
+
+const SEAT_CYCLE = ['NORMAL', 'ACCESSIBLE', 'LEFT_HANDED', 'BROKEN'] as const
 
 export default function InstructorRoomsPage() {
   const navigate = useNavigate()
@@ -12,6 +15,7 @@ export default function InstructorRoomsPage() {
   const [roomRows, setRoomRows] = useState('5')
   const [roomCols, setRoomCols] = useState('6')
   const [error, setError] = useState('')
+  const [selectedRoom, setSelectedRoom] = useState<{ id: string; name: string; seats: Seat[] } | null>(null)
 
   const logout = () => { clearToken(); navigate('/login') }
 
@@ -36,6 +40,29 @@ export default function InstructorRoomsPage() {
       setError(err instanceof Error ? err.message : 'Failed to create room')
     }
   }
+
+  const loadRoomSeats = async (roomId: string) => {
+    try {
+      const res = await apiFetch<{ room: { id: string; name: string; seats: Seat[] } }>(`/rooms/${roomId}`)
+      setSelectedRoom({ id: res.room.id, name: res.room.name, seats: res.room.seats })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load room details')
+    }
+  }
+
+  const cycleSeatType = async (seat: Seat) => {
+    if (!selectedRoom) return
+    const idx = SEAT_CYCLE.indexOf(seat.seatType as any)
+    const next = SEAT_CYCLE[(idx + 1) % SEAT_CYCLE.length]
+    try {
+      await apiFetch(`/rooms/${selectedRoom.id}/seats/${seat.id}`, { method: 'PATCH', body: JSON.stringify({ seatType: next }) })
+      setSelectedRoom({ ...selectedRoom, seats: selectedRoom.seats.map((s) => s.id === seat.id ? { ...s, seatType: next } : s) })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update seat')
+    }
+  }
+
+  const seatColor = (t: string) => t === 'ACCESSIBLE' ? 'blue' : t === 'LEFT_HANDED' ? 'violet' : t === 'BROKEN' ? 'red' : 'gray'
 
   return (
     <AppShell header={{ height: 60 }} padding="md">
@@ -70,13 +97,38 @@ export default function InstructorRoomsPage() {
               {rooms.length === 0 && <Text c="dimmed" size="sm">No rooms yet.</Text>}
               <Stack gap="xs">
                 {rooms.map((r) => (
-                  <div key={r.id}>
-                    <Text size="sm">{r.name} ({r._count?.seats ?? 0} seats)</Text>
-                    <Text size="xs" c="dimmed">ID: {r.id}</Text>
-                  </div>
+                  <Group key={r.id} justify="space-between">
+                    <div>
+                      <Text size="sm">{r.name} ({r._count?.seats ?? 0} seats)</Text>
+                      <Text size="xs" c="dimmed">ID: {r.id}</Text>
+                    </div>
+                    <Button size="xs" variant="light" onClick={() => loadRoomSeats(r.id)}>View/Edit seats</Button>
+                  </Group>
                 ))}
               </Stack>
             </Card>
+            {selectedRoom && (
+              <Card withBorder padding="md">
+                <Group justify="space-between" mb="sm">
+                  <Title order={4}>Seats: {selectedRoom.name}</Title>
+                  <Button size="xs" variant="subtle" onClick={() => setSelectedRoom(null)}>Close</Button>
+                </Group>
+                <Text size="sm" c="dimmed" mb="sm">Click a seat to cycle: NORMAL → ACCESSIBLE → LEFT_HANDED → BROKEN → NORMAL</Text>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(60px, 1fr))', gap: 8 }}>
+                  {selectedRoom.seats.map((s) => (
+                    <Button key={s.id} size="xs" color={seatColor(s.seatType)} variant={s.seatType === 'NORMAL' ? 'outline' : 'filled'} onClick={() => cycleSeatType(s)} title={`${s.label || ''} (${s.seatType})`}>
+                      {s.label || `${s.row},${s.col}`}
+                    </Button>
+                  ))}
+                </div>
+                <Group mt="sm" gap="xs">
+                  <Badge color="gray">NORMAL</Badge>
+                  <Badge color="blue">ACCESSIBLE</Badge>
+                  <Badge color="violet">LEFT_HANDED</Badge>
+                  <Badge color="red">BROKEN</Badge>
+                </Group>
+              </Card>
+            )}
           </Stack>
         </Container>
       </AppShell.Main>

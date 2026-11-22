@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AppShell, Button, Container, Group, Stack, Text, Title, Card, Alert, Select } from '@mantine/core'
+import { AppShell, Button, Container, Group, Stack, Text, Title, Card, Alert, Select, Switch } from '@mantine/core'
 import { clearToken, apiFetch } from '../lib/api'
 
 export default function StudentPage() {
@@ -8,6 +8,7 @@ export default function StudentPage() {
   const [assignments, setAssignments] = useState<any[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [profile, setProfile] = useState<{ needsAccessible: boolean; needsLeftHanded: boolean } | null>(null)
   const logout = () => {
     clearToken()
     navigate('/login')
@@ -17,7 +18,20 @@ export default function StudentPage() {
     apiFetch<{ assignments: any[] }>('/exams/my/list')
       .then((res) => setAssignments(res.assignments))
       .catch(() => setError('Could not load your exams'))
+    apiFetch<{ user: any }>('/auth/me')
+      .then((res) => setProfile({ needsAccessible: res.user.needsAccessible, needsLeftHanded: res.user.needsLeftHanded }))
+      .catch(() => {})
   }, [])
+
+  const updateProfile = async (field: 'needsAccessible' | 'needsLeftHanded', value: boolean) => {
+    if (!profile) return
+    try {
+      const res = await apiFetch<{ user: any }>('/auth/me', { method: 'PATCH', body: JSON.stringify({ [field]: value }) })
+      setProfile({ needsAccessible: res.user.needsAccessible, needsLeftHanded: res.user.needsLeftHanded })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update profile')
+    }
+  }
 
   const selected = assignments.find((a) => a.exam?.id === selectedId) || null
 
@@ -33,6 +47,16 @@ export default function StudentPage() {
         <Container size="sm" py="xl">
           <Stack gap="md">
             <Title order={2}>Student</Title>
+            <Card withBorder padding="md">
+              <Title order={4} mb="sm">My seating needs</Title>
+              <Text size="sm" c="dimmed" mb="sm">These are used for exam seat assignment (set by you).</Text>
+              {profile && (
+                <Stack gap="sm">
+                  <Switch label="I need accessible seating" checked={profile.needsAccessible} onChange={(e) => updateProfile('needsAccessible', e.currentTarget.checked)} />
+                  <Switch label="I need left-handed seating" checked={profile.needsLeftHanded} onChange={(e) => updateProfile('needsLeftHanded', e.currentTarget.checked)} />
+                </Stack>
+              )}
+            </Card>
             <Text c="dimmed">Select an exam to view your seat assignment.</Text>
             {error && <Alert color="red">{error}</Alert>}
             <Select
@@ -52,6 +76,44 @@ export default function StudentPage() {
                 <Text>Room: {selected.seat?.room?.name || (selected.exam?.rooms || []).map((er: any) => er.room?.name).join(', ')}</Text>
                 <Text>Seat: {selected.seat?.label} ({selected.seat?.seatType})</Text>
                 <Text>Checked in: {selected.checkedIn ? 'Yes' : 'No'}</Text>
+                {selected.seat?.room?.seats && selected.seat.room.seats.length > 0 && (() => {
+                  const seats: any[] = selected.seat.room.seats
+                  const maxRow = Math.max(...seats.map((s: any) => s.row))
+                  const maxCol = Math.max(...seats.map((s: any) => s.col))
+                  const grid: any[][] = []
+                  for (let r = 0; r <= maxRow; r++) {
+                    grid[r] = []
+                    for (let c = 0; c <= maxCol; c++) {
+                      grid[r][c] = seats.find((s: any) => s.row === r && s.col === c) || null
+                    }
+                  }
+                  return (
+                    <div style={{ marginTop: 16 }}>
+                      <Text fw={600} mb="xs">Room map (your seat highlighted)</Text>
+                      <div style={{ overflowX: 'auto' }}>
+                        {grid.map((row, ri) => (
+                          <div key={ri} style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                            {row.map((seat, ci) => (
+                              <div
+                                key={ci}
+                                style={{
+                                  width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  border: '1px solid #ccc', borderRadius: 4, fontSize: 10,
+                                  backgroundColor: !seat ? '#f0f0f0' : seat.id === selected.seat.id ? '#4dabf7' : seat.seatType === 'BROKEN' ? '#ffcccc' : '#e7f5ff',
+                                  color: seat && seat.id === selected.seat.id ? '#fff' : '#000',
+                                  fontWeight: seat && seat.id === selected.seat.id ? 'bold' : 'normal',
+                                }}
+                                title={seat ? `${seat.label || `R${seat.row}C${seat.col}`} (${seat.seatType})` : 'No seat'}
+                              >
+                                {seat ? (seat.label || '·') : ''}
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
               </Card>
             )}
           </Stack>

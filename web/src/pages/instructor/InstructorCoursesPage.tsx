@@ -146,9 +146,8 @@ export default function InstructorCoursesPage() {
                       {roster.map((r: any) => (
                         <div key={r.id}>
                           <Text size="sm">{r.name} — {r.email}</Text>
+                          <Text size="xs" c="dimmed">Accessible: {r.needsAccessible ? 'Yes' : 'No'} | Left-handed: {r.needsLeftHanded ? 'Yes' : 'No'} (set by student)</Text>
                           <Group gap="xs">
-                            <Button size="xs" variant={r.needsAccessible ? 'filled' : 'light'} onClick={() => updateRosterEntry(r.id, 'needsAccessible', !r.needsAccessible)}>Accessible</Button>
-                            <Button size="xs" variant={r.needsLeftHanded ? 'filled' : 'light'} onClick={() => updateRosterEntry(r.id, 'needsLeftHanded', !r.needsLeftHanded)}>Left-handed</Button>
                             <Button size="xs" variant="light" onClick={() => { const v = window.prompt('Name', r.name); if (v && v !== r.name) updateRosterEntry(r.id, 'name', v); }}>Edit name</Button>
                             <Button size="xs" variant="light" onClick={() => { const v = window.prompt('Email', r.email); if (v && v !== r.email) updateRosterEntry(r.id, 'email', v); }}>Edit email</Button>
                             <Button size="xs" color="red" variant="light" onClick={() => { if (window.confirm('Delete this entry?')) deleteRosterEntry(r.id); }}>Delete</Button>

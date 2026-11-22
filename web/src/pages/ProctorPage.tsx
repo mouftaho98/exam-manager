@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AppShell, Button, Container, Group, Stack, Title, Alert, Text, Card, Select, Modal } from '@mantine/core'
+import { AppShell, Button, Container, Group, Stack, Title, Alert, Text, Card, Select, Modal, TextInput } from '@mantine/core'
 import { clearToken, apiFetch } from '../lib/api'
 import { io } from 'socket.io-client'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
@@ -15,6 +15,7 @@ export default function ProctorPage() {
   const [exams, setExams] = useState<any[]>([])
   const [scanOpen, setScanOpen] = useState(false)
   const [scanError, setScanError] = useState('')
+  const [barcodeInput, setBarcodeInput] = useState('')
   const scannerRef = useRef<Html5Qrcode | null>(null)
 
   const logout = () => {
@@ -46,8 +47,10 @@ export default function ProctorPage() {
       })
       setMsg(res.message || `Checked in: ${res.assignment.rosterEntry?.name} at seat ${res.assignment.seat?.label}`)
       setScanOpen(false)
+      setBarcodeInput('')
     } catch (err) {
       setScanError(err instanceof Error ? err.message : 'Check-in failed')
+      setError(err instanceof Error ? err.message : 'Check-in failed')
     }
   }
 
@@ -170,6 +173,16 @@ export default function ProctorPage() {
                   <Button onClick={checkIn} disabled={!examId || !selectedEmail}>Check in student</Button>
                   <Button variant="outline" onClick={() => setScanOpen(true)} disabled={!examId}>Scan student card</Button>
                 </Group>
+                <TextInput
+                  label="Or enter barcode manually"
+                  placeholder="Type/paste barcode"
+                  value={barcodeInput}
+                  onChange={(e) => setBarcodeInput(e.target.value)}
+                  disabled={!examId}
+                />
+                <Button variant="light" onClick={() => barcodeInput.trim() && checkInByBarcode(barcodeInput.trim())} disabled={!examId || !barcodeInput.trim()}>
+                  Check in by barcode
+                </Button>
               </Stack>
               {msg && <Alert color="green" mt="sm">{msg}</Alert>}
               {error && <Alert color="red" mt="sm">{error}</Alert>}

@@ -10,6 +10,11 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
   const res = await fetch(`${API_URL}${path}`, { ...options, headers })
   const data = await res.json().catch(() => ({}))
+  if (res.status === 401) {
+    localStorage.removeItem('token')
+    if (typeof window !== 'undefined') window.location.href = '/login'
+    throw new Error('Session expired. Please log in again.')
+  }
   if (!res.ok) {
     throw new Error(data?.error?.message || 'Request failed')
   }

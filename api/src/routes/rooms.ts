@@ -85,4 +85,29 @@ router.get("/:id", requireInstructor, async (req, res, next) => {
   }
 });
 
+const updateSeatSchema = z.object({
+  seatType: z.enum(["NORMAL", "LEFT_HANDED", "ACCESSIBLE", "BROKEN"]),
+});
+
+router.patch("/:roomId/seats/:seatId", requireInstructor, async (req, res, next) => {
+  try {
+    const room = await prisma.room.findFirst({
+      where: { id: req.params.roomId, createdBy: req.user.userId },
+    });
+    if (!room) throw notFound("Room");
+    const data = updateSeatSchema.parse(req.body);
+    const seat = await prisma.seat.findFirst({
+      where: { id: req.params.seatId, roomId: room.id },
+    });
+    if (!seat) throw notFound("Seat");
+    const updated = await prisma.seat.update({
+      where: { id: seat.id },
+      data: { seatType: data.seatType },
+    });
+    res.json({ seat: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

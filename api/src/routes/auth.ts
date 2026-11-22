@@ -69,9 +69,30 @@ router.get("/me", requireAuth, async (req, res, next) => {
     if (!userId) throw unauthorized();
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, role: true, createdAt: true },
+      select: { id: true, email: true, name: true, role: true, needsAccessible: true, needsLeftHanded: true, createdAt: true },
     });
     if (!user) throw unauthorized("User not found");
+    res.json({ user });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const updateMeSchema = z.object({
+  needsAccessible: z.boolean().optional(),
+  needsLeftHanded: z.boolean().optional(),
+});
+
+router.patch("/me", requireAuth, async (req, res, next) => {
+  try {
+    const userId = (req as { user?: { userId: string } }).user?.userId;
+    if (!userId) throw unauthorized();
+    const data = updateMeSchema.parse(req.body);
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data,
+      select: { id: true, email: true, name: true, role: true, needsAccessible: true, needsLeftHanded: true, createdAt: true },
+    });
     res.json({ user });
   } catch (err) {
     next(err);
