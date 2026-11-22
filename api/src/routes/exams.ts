@@ -114,11 +114,9 @@ router.post("/:id/generate", requireInstructor, async (req, res, next) => {
   }
 });
 
-router.get("/:id/assignments", requireInstructor, async (req, res, next) => {
+router.get("/:id/assignments", requireInstructorOrProctor, async (req, res, next) => {
   try {
-    const exam = await prisma.exam.findFirst({
-      where: { id: req.params.id, course: { instructorId: req.user.userId } },
-    });
+    const exam = await prisma.exam.findFirst({ where: { id: req.params.id } });
     if (!exam) throw notFound("Exam");
     const assignments = await prisma.seatAssignment.findMany({
       where: { examId: exam.id },
@@ -147,6 +145,8 @@ router.post("/:id/checkin", requireInstructorOrProctor, async (req, res, next) =
       data: { checkedIn: true, checkedInAt: new Date() },
       include: { seat: true, rosterEntry: true },
     });
+    const io = req.app.get("io");
+    if (io) io.to(`exam:${exam.id}`).emit("checkin", updated);
     res.json({ assignment: updated });
   } catch (err) {
     next(err);
