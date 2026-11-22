@@ -11,6 +11,12 @@ function requireInstructor(req: any, _res: any, next: any) {
   if (req.user?.role !== "INSTRUCTOR") return next(forbidden("Instructor role required"));
   next();
 }
+function requireInstructorOrProctor(req: any, _res: any, next: any) {
+  if (req.user?.role !== "INSTRUCTOR" && req.user?.role !== "PROCTOR") {
+    return next(forbidden("Instructor or Proctor role required"));
+  }
+  next();
+}
 
 const createExamSchema = z.object({
   courseId: z.string().min(1),
@@ -120,6 +126,44 @@ router.get("/:id/assignments", requireInstructor, async (req, res, next) => {
       orderBy: { seat: { label: "asc" } },
     });
     res.json({ assignments });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/:id/checkin", requireInstructorOrProctor, async (req, res, next) => {
+  try {
+    const { email } = req.body as { email?: string };
+    if (!email) throw badRequest("email is required");
+    const exam = await prisma.exam.findFirst({ where: { id: req.params.id } });
+    if (!exam) throw notFound("Exam");
+    const assignment = await prisma.seatAssignment.findFirst({
+      where: { examId: exam.id, rosterEntry: { email: email.toLowerCase() } },
+      include: { seat: true, rosterEntry: true },
+    });
+    if (!assignment) throw notFound("Assignment for that email");
+    const updated = await prisma.seatAssignment.update({
+      where: { id: assignment.id },
+      data: { checkedIn: true, checkedInAt: new Date() },
+      include: { seat: true, rosterEntry: true },
+    });
+    res.json({ assignment: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/:id/my-assignment", requireAuth, async (req, res, next) => {
+  try {
+    const userId = (req as any).user?.userId;
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw notFound("User");
+    const assignment = await prisma.seatAssignment.findFirst({
+      where: { examId: req.params.id, rosterEntry: { email: user.email.toLowerCase() } },
+      include: { seat: true, exam: { include: { room: true, course: true } }, rosterEntry: true },
+    });
+    if (!assignment) throw notFound("Assignment");
+    res.json({ assignment });
   } catch (err) {
     next(err);
   }
