@@ -159,4 +159,18 @@ describe("rooms, exams and seating", () => {
     expect(again.body.exams[0].seat.id).toBe(free.id);
     expect(again.body.exams[0].checkinCode).toMatch(/^[2-9A-HJ-NP-Z]{6}$/);
   });
+
+  it("handles many staff moving different students at the same time", async () => {
+    // Serializable transactions that overlap get retried instead of failing with a 500.
+    const seats = await allSeats();
+    const seated = seats.filter((s) => s.student);
+    const free = seats.filter((s) => !s.broken && !s.student);
+    const moves = seated.slice(0, Math.min(seated.length, free.length)).map((s, i) =>
+      api().patch(`/exams/${examId}/assignments/${s.student!.studentId}`).set(auth(proctor.token)).send({ seatId: free[i].id }),
+    );
+    const results = await Promise.all(moves);
+    expect(results.map((r) => r.status)).toEqual(results.map(() => 200));
+    const after = await allSeats();
+    expect(new Set(after.filter((s) => s.student).map((s) => s.student!.studentId)).size).toBe(seated.length);
+  });
 });

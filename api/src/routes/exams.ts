@@ -10,7 +10,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { Prisma, type OfferingMember, type User } from "@prisma/client";
-import { prisma } from "../db.js";
+import { prisma, serializable } from "../db.js";
 import { currentUser, requireAuth } from "../auth.js";
 import { INSTRUCTOR_ONLY, STAFF, requireExamRole, requireOfferingRole } from "../access.js";
 import { badRequest, conflict, HttpError, notFound } from "../errors.js";
@@ -207,7 +207,7 @@ examsRouter.post("/exams/:examId/seating/generate", async (req, res) => {
 
   // Serializable: if a proctor moves someone while this runs, one of the two
   // is retried/rejected instead of both writing over each other.
-  const result = await prisma.$transaction(
+  const result = await serializable(
     async (tx) => {
       // Reshuffling everyone after students have sat down would be chaos.
       if ((await tx.checkIn.count({ where: { examId: exam.id } })) > 0) {
@@ -254,7 +254,7 @@ examsRouter.post("/exams/:examId/seating/generate", async (req, res) => {
         warnings: plan.warnings,
       };
     },
-    { isolationLevel: "Serializable", timeout: 30000 },
+    { timeout: 30000 },
   );
 
   // Proctors' screens reload the map when they get this.
@@ -312,7 +312,7 @@ examsRouter.patch("/exams/:examId/assignments/:studentId", async (req, res) => {
   const { seatId, swap } = moveBody.parse(req.body);
   const studentId = req.params.studentId;
 
-  const moves = await prisma.$transaction(
+  const moves = await serializable(
     async (tx) => {
       // Check the student and the seat are valid for this exam.
       const member = await tx.offeringMember.findFirst({
@@ -390,7 +390,7 @@ examsRouter.patch("/exams/:examId/assignments/:studentId", async (req, res) => {
       }
       return [{ studentId, seatId: seat.id, roomId: seat.roomId }];
     },
-    { isolationLevel: "Serializable" },
+    {},
   );
 
   // Tell other proctors watching this exam, so their maps update live.
