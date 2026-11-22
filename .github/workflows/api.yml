@@ -8,10 +8,10 @@ on:
     branches: [main]
     paths: ["api/**", ".github/workflows/api.yml"]
 
-# Cancel superseded PR checks. Let any active staging rollout finish.
+# A new push to the same PR cancels the run that's still going.
 concurrency:
   group: api-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -84,43 +84,3 @@ jobs:
           echo "API never became ready"; docker logs api; exit 1
       - if: always()
         run: docker logs api || true
-
-  deploy:
-    name: Deploy API to DOKS staging
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test, docker]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment: staging
-    permissions:
-      contents: read
-    env:
-      REGISTRY: exam-manager-ece1779
-      CLUSTER: exam-manager
-      KUBECONFIG: ${{ runner.temp }}/exam-manager-kubeconfig.yaml
-    steps:
-      - uses: actions/checkout@v4
-      - uses: digitalocean/action-doctl@v2
-        with:
-          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-      - uses: azure/setup-kubectl@v4
-      - uses: docker/setup-buildx-action@v3
-      - name: Log in to the registry
-        run: doctl registry login --expiry-seconds 1200
-      - name: Build and publish the API image
-        id: image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./api
-          platforms: linux/amd64
-          provenance: false
-          push: true
-          tags: registry.digitalocean.com/exam-manager-ece1779/exam-manager-api:${{ github.sha }}
-      - name: Update the staging Deployment
-        env:
-          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-        run: |
-          doctl kubernetes cluster kubeconfig save "$CLUSTER" --expiry-seconds 600
-          image="registry.digitalocean.com/$REGISTRY/exam-manager-api@$IMAGE_DIGEST"
-          kubectl -n exam-manager set image deployment/api api="$image"
-          kubectl -n exam-manager rollout status deployment/api --timeout=5m

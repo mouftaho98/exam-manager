@@ -102,11 +102,7 @@ npx wscat -c "wss://$API_HOST/socket.io/?EIO=4&transport=websocket"
 
 The regional load balancer terminates TLS and supports WebSocket upgrades. Client connections use `transports: ["websocket"]`, so session affinity is unnecessary. The internal Service continues to serve in-cluster health checks. [DigitalOcean load balancer configuration](https://docs.digitalocean.com/products/kubernetes/how-to/configure-load-balancers/) · [WebSocket support](https://docs.digitalocean.com/products/networking/load-balancers/details/features/#websocket-support)
 
-### Deploy API changes from GitHub Actions
-
-Create a GitHub environment named `staging` and add `DIGITALOCEAN_ACCESS_TOKEN` as an environment secret. Use a dedicated token with access to push to the registry and obtain staging cluster credentials that can update and watch the API Deployment. Bootstrap the deployment and registry integration using the steps above.
-
-On pushes to `main` that touch the API or its workflow, the deploy job waits for both CI jobs, builds and pushes the AMD64 image, then updates the Deployment by digest and waits for rollout. For a manual API-only update, set `API_IMAGE` to the new pushed digest and run `kubectl -n exam-manager set image deployment/api api="$API_IMAGE"`. Wait for rollout and verify `/ready` and the changed feature.
+For a manual API-only update, set `API_IMAGE` to the new pushed digest and run `kubectl -n exam-manager set image deployment/api api="$API_IMAGE"`. Wait for rollout and verify `/ready` and the changed feature.
 
 ## 4. Enable autoscaling and monitoring
 
