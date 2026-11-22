@@ -4,6 +4,7 @@ import { AppShell, Button, Container, Group, Stack, Text, Title, TextInput, Card
 import { clearToken, apiFetch } from '../lib/api'
 
 type Course = { id: string; code: string; name: string }
+type Room = { id: string; name: string; _count?: { seats: number } }
 
 export default function InstructorPage() {
   const navigate = useNavigate()
@@ -14,6 +15,10 @@ export default function InstructorPage() {
   const [selectedCourse, setSelectedCourse] = useState<string | null>(null)
   const [csvText, setCsvText] = useState('')
   const [rosterMsg, setRosterMsg] = useState('')
+  const [rooms, setRooms] = useState<Room[]>([])
+  const [roomName, setRoomName] = useState('')
+  const [roomRows, setRoomRows] = useState('5')
+  const [roomCols, setRoomCols] = useState('6')
 
   const logout = () => {
     clearToken()
@@ -28,8 +33,16 @@ export default function InstructorPage() {
       setError(err instanceof Error ? err.message : 'Failed to load courses')
     }
   }
+  const loadRooms = async () => {
+    try {
+      const res = await apiFetch<{ rooms: Room[] }>('/rooms')
+      setRooms(res.rooms)
+    } catch (err) {
+      // ignore
+    }
+  }
 
-  useEffect(() => { loadCourses() }, [])
+  useEffect(() => { loadCourses(); loadRooms() }, [])
 
   const createCourse = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -40,6 +53,20 @@ export default function InstructorPage() {
       loadCourses()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create course')
+    }
+  }
+  const createRoom = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    try {
+      await apiFetch('/rooms', {
+        method: 'POST',
+        body: JSON.stringify({ name: roomName, rows: parseInt(roomRows), cols: parseInt(roomCols) }),
+      })
+      setRoomName(''); setRoomRows('5'); setRoomCols('6')
+      loadRooms()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create room')
     }
   }
 
@@ -92,6 +119,26 @@ export default function InstructorPage() {
                   </Button>
                 ))}
               </Stack>
+            </Card>
+            <Card withBorder padding="md">
+              <Title order={4} mb="sm">Rooms (seating maps)</Title>
+              <form onSubmit={createRoom}>
+                <Stack gap="sm">
+                  <TextInput label="Room name" placeholder="e.g. EX100" value={roomName} onChange={(e) => setRoomName(e.target.value)} required />
+                  <Group grow>
+                    <TextInput label="Rows" type="number" value={roomRows} onChange={(e) => setRoomRows(e.target.value)} required />
+                    <TextInput label="Cols" type="number" value={roomCols} onChange={(e) => setRoomCols(e.target.value)} required />
+                  </Group>
+                  <Button type="submit">Create room</Button>
+                </Stack>
+              </form>
+              {rooms.length > 0 && (
+                <Stack gap="xs" mt="md">
+                  {rooms.map((r) => (
+                    <Text key={r.id} size="sm">{r.name} ({r._count?.seats ?? 0} seats)</Text>
+                  ))}
+                </Stack>
+              )}
             </Card>
             {selectedCourse && (
               <Card withBorder padding="md">

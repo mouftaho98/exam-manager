@@ -24,6 +24,7 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   courses      Course[]
+  rooms        Room[]
 }
 
 model Course {
@@ -48,4 +49,32 @@ model CourseRosterEntry {
   createdAt DateTime @default(now())
 
   @@unique([courseId, email])
+}
+
+enum SeatType {
+  NORMAL
+  LEFT_HANDED
+  ACCESSIBLE
+  BROKEN
+}
+
+model Room {
+  id        String   @id @default(cuid())
+  name      String
+  createdBy String
+  creator   User     @relation(fields: [createdBy], references: [id])
+  seats     Seat[]
+  createdAt DateTime @default(now())
+}
+
+model Seat {
+  id       String   @id @default(cuid())
+  roomId   String
+  room     Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  row      Int
+  col      Int
+  label    String?
+  seatType SeatType @default(NORMAL)
+
+  @@unique([roomId, row, col])
 }
