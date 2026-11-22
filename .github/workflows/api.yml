@@ -1,12 +1,12 @@
 name: API
 
-# Runs on every PR (including PRs stacked on other branches) and on pushes to main.
+# Runs on every PR and on pushes to main. No path filter on purpose: the
+# protect-main ruleset requires these checks, and a skipped workflow never
+# reports, which leaves PRs that don't touch api/ stuck on "Expected".
 on:
   pull_request:
-    paths: ["api/**", ".github/workflows/api.yml"]
   push:
     branches: [main]
-    paths: ["api/**", ".github/workflows/api.yml"]
 
 # A new push to the same PR cancels the run that's still going.
 concurrency:
@@ -45,8 +45,6 @@ jobs:
           cache: npm
           cache-dependency-path: api/package-lock.json
       - run: npm ci
-      - name: Install rollup optional dep (CI workaround)
-        run: npm i @rollup/rollup-linux-x64-gnu --no-save || true
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
