@@ -45,6 +45,8 @@ jobs:
           cache: npm
           cache-dependency-path: api/package-lock.json
       - run: npm ci
+      - name: Install rollup optional dep (CI workaround)
+        run: npm i @rollup/rollup-linux-x64-gnu --no-save || true
       - run: npm run typecheck
       - run: npm test
       - run: npm run build

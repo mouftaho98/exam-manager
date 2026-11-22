@@ -1,70 +1,102 @@
-/**
- * Accounts: POST /auth/register and POST /auth/login.
- * Both return a login token and the user. These routes are public.
- */
 import { Router } from "express";
-import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "../db.js";
-import { signToken } from "../auth.js";
-import { conflict, unauthorized } from "../errors.js";
-import { userDto } from "../serializers.js";
+import { badRequest, conflict, unauthorized } from "../errors.js";
+import { hashPassword, verifyPassword, signToken, requireAuth, type Role } from "../auth.js";
 
-export const authRouter = Router();
+const router = Router();
 
-// Request body shapes. Zod checks them and throws a 400 if they're wrong.
-// Emails are lowercased so "Ana@Mail.com" and "ana@mail.com" are the same account.
-const registerBody = z.object({
-  email: z.string().email().transform((e) => e.toLowerCase()),
-  password: z.string().min(8, "Password must be at least 8 characters").max(200),
-  firstName: z.string().trim().min(1).max(100),
-  lastName: z.string().trim().min(1).max(100),
-  // "I'm an instructor": asks for instructor access, which an admin must approve.
-  wantsToTeach: z.boolean().optional(),
-  // Exam seating needs. Students can change these later with PATCH /me.
-  needsAccessible: z.boolean().optional(),
-  leftHanded: z.boolean().optional(),
+const signupSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+  name: z.string().min(1),
+  role: z.enum(["STUDENT", "PROCTOR", "INSTRUCTOR"]),
 });
 
-const loginBody = z.object({
-  email: z.string().email().transform((e) => e.toLowerCase()),
+router.post("/signup", async (req, res, next) => {
+  try {
+    const data = signupSchema.parse(req.body);
+    const existing = await prisma.user.findUnique({ where: { email: data.email } });
+    if (existing) {
+      throw conflict("email_exists", "Email already registered");
+    }
+    const passwordHash = await hashPassword(data.password);
+    const user = await prisma.user.create({
+      data: {
+        email: data.email,
+        passwordHash,
+        name: data.name,
+        role: data.role as Role,
+      },
+      select: { id: true, email: true, name: true, role: true, createdAt: true },
+    });
+    const token = signToken({ userId: user.id, role: user.role as Role });
+    res.status(201).json({ token, user });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const loginSchema = z.object({
+  email: z.string().email(),
   password: z.string().min(1),
 });
 
-/**
- * Create an account. 409 if the email is already registered.
- *
- * If an instructor already added this email (roster or invite), a User with no
- * password exists; registering takes over that record, so the person keeps
- * their student number and their place in those offerings.
- */
-authRouter.post("/register", async (req, res) => {
-  const body = registerBody.parse(req.body);
-  const existing = await prisma.user.findUnique({ where: { email: body.email } });
-  if (existing?.passwordHash) throw conflict("email_taken", "An account with this email already exists, please sign in");
-
-  // Store a bcrypt hash (cost 10), never the plain password.
-  const data = {
-    firstName: body.firstName,
-    lastName: body.lastName,
-    passwordHash: await bcrypt.hash(body.password, 10),
-    needsAccessible: body.needsAccessible ?? false,
-    leftHanded: body.leftHanded ?? false,
-    ...(body.wantsToTeach ? { instructorStatus: "PENDING" as const } : {}),
-  };
-  const user = existing
-    ? await prisma.user.update({ where: { id: existing.id }, data })
-    : await prisma.user.create({ data: { ...data, email: body.email } });
-  res.status(201).json({ token: signToken(user), user: userDto(user) });
-});
-
-/** Sign in with email and password. */
-authRouter.post("/login", async (req, res) => {
-  const body = loginBody.parse(req.body);
-  const user = await prisma.user.findUnique({ where: { email: body.email } });
-  // Same message for "no such user", "not registered yet" and "wrong password", so emails can't be probed.
-  if (!user?.passwordHash || !(await bcrypt.compare(body.password, user.passwordHash))) {
-    throw unauthorized("Wrong email or password");
+router.post("/login", async (req, res, next) => {
+  try {
+    const data = loginSchema.parse(req.body);
+    const user = await prisma.user.findUnique({ where: { email: data.email } });
+    if (!user) {
+      throw unauthorized("Invalid email or password");
+    }
+    const ok = await verifyPassword(data.password, user.passwordHash);
+    if (!ok) {
+      throw unauthorized("Invalid email or password");
+    }
+    const token = signToken({ userId: user.id, role: user.role as Role });
+    res.json({
+      token,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    });
+  } catch (err) {
+    next(err);
   }
-  res.json({ token: signToken(user), user: userDto(user) });
 });
+
+router.get("/me", requireAuth, async (req, res, next) => {
+  try {
+    const userId = (req as { user?: { userId: string } }).user?.userId;
+    if (!userId) throw unauthorized();
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, name: true, role: true, needsAccessible: true, needsLeftHanded: true, createdAt: true },
+    });
+    if (!user) throw unauthorized("User not found");
+    res.json({ user });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const updateMeSchema = z.object({
+  needsAccessible: z.boolean().optional(),
+  needsLeftHanded: z.boolean().optional(),
+});
+
+router.patch("/me", requireAuth, async (req, res, next) => {
+  try {
+    const userId = (req as { user?: { userId: string } }).user?.userId;
+    if (!userId) throw unauthorized();
+    const data = updateMeSchema.parse(req.body);
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data,
+      select: { id: true, email: true, name: true, role: true, needsAccessible: true, needsLeftHanded: true, createdAt: true },
+    });
+    res.json({ user });
+  } catch (err) {
+    next(err);
+  }
+});
+
+export default router;

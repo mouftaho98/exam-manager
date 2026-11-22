@@ -1,64 +1,38 @@
-/**
- * Login tokens (JWT) and the middleware that checks them.
- *
- * After register or login, the client gets a token and sends it on every
- * request as `Authorization: Bearer <token>`. The token is signed with
- * JWT_SECRET, so the server can trust the user id inside it without a
- * database lookup.
- */
-import type { RequestHandler } from "express";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import type { Request, Response, NextFunction } from "express";
 import { config } from "./config.js";
 import { unauthorized } from "./errors.js";
 
-/** Who is making the request, taken from their token. */
-export interface AuthUser {
-  id: string;
-  email: string;
+export type Role = "STUDENT" | "PROCTOR" | "INSTRUCTOR";
+
+export function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, 10);
 }
 
-// Tell TypeScript that Express requests can carry `req.user` (set by requireAuth).
-declare global {
-  // eslint-disable-next-line @typescript-eslint/no-namespace
-  namespace Express {
-    interface Request {
-      user?: AuthUser;
-    }
-  }
+export function verifyPassword(password: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(password, hash);
 }
 
-/** Make a login token for a user. It expires after JWT_EXPIRES_IN (default 7 days). */
-export function signToken(user: AuthUser): string {
-  return jwt.sign({ email: user.email }, config.jwtSecret, {
-    subject: user.id,
-    expiresIn: config.jwtExpiresIn as jwt.SignOptions["expiresIn"],
-  });
+export function signToken(payload: { userId: string; role: Role }): string {
+  return jwt.sign(payload, config.jwtSecret, { expiresIn: "7d" });
 }
 
-/** Check a token's signature and expiry, and return the user inside it. Throws if invalid. */
-export function verifyToken(token: string): AuthUser {
-  const payload = jwt.verify(token, config.jwtSecret) as jwt.JwtPayload;
-  if (!payload.sub || typeof payload.email !== "string") throw new Error("Bad token");
-  return { id: payload.sub, email: payload.email };
+export function verifyToken(token: string): { userId: string; role: Role } {
+  return jwt.verify(token, config.jwtSecret) as { userId: string; role: Role };
 }
 
-/**
- * Middleware: only let signed-in users through. Puts the user on `req.user`,
- * or answers 401 if the token is missing, expired or forged.
- */
-export const requireAuth: RequestHandler = (req, _res, next) => {
+export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) return next(unauthorized());
+  if (!header || !header.startsWith("Bearer ")) {
+    return next(unauthorized("Missing token"));
+  }
+  const token = header.slice(7);
   try {
-    req.user = verifyToken(header.slice(7)); // strip the "Bearer " prefix
+    const payload = verifyToken(token);
+    (req as Request & { user?: { userId: string; role: Role } }).user = payload;
     next();
   } catch {
-    next(unauthorized("Session expired or invalid, please sign in again"));
+    next(unauthorized("Invalid token"));
   }
-};
-
-/** The signed-in user. Only call after requireAuth. */
-export function currentUser(req: Express.Request): AuthUser {
-  if (!req.user) throw unauthorized();
-  return req.user;
 }
