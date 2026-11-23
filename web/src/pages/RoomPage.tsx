@@ -10,6 +10,7 @@ import RoomBuilder, { gridFromRoom, gridToRows, usableCount, type Grid } from '.
 import SeatMap from '../components/SeatMap'
 import { api, errorMessage } from '../lib/api'
 import { useLoad } from '../lib/hooks'
+import { useElementSize } from '../lib/useCellSize'
 import type { Room, Seat } from '../lib/types'
 
 type Marking = 'accessible' | 'leftHanded' | 'broken'
@@ -28,6 +29,10 @@ export default function RoomPage() {
   const [error, setError] = useState('')
   const [warning, setWarning] = useState('')
   const r = room.data?.room
+  // The map fills the box beside the sidebar (as tall as the sidebar) unless they're stacked.
+  const sideBox = useElementSize()
+  const mapBox = useElementSize()
+  const stacked = mapBox.top > sideBox.top + 20
 
   const toggle = async (seat: Seat) => {
     setError('')
@@ -82,7 +87,7 @@ export default function RoomPage() {
             <Card withBorder padding="md">
               {/* Controls on the left, the map on the right (stacked on phones). */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-start' }}>
-                <Stack gap="sm" style={{ flex: '0 0 250px', minWidth: 0 }}>
+                <Stack ref={sideBox.ref} gap="sm" style={{ flex: '0 0 250px', minWidth: 0 }}>
                   <Title order={5}>Seat markings</Title>
                   <SegmentedControl
                     orientation="vertical" fullWidth value={marking} onChange={(v) => setMarking(v as Marking)} aria-label="Seat marking"
@@ -99,8 +104,8 @@ export default function RoomPage() {
                   <Text size="xs" c="dimmed">Click a seat to turn the selected marking on or off. Broken seats are never assigned.</Text>
                   <Button variant="light" onClick={() => setDraft(gridFromRoom(r))}>Edit layout</Button>
                 </Stack>
-                <div style={{ flex: '1 1 360px', minWidth: 0 }}>
-                  <SeatMap rows={r.rows} onSeatClick={toggle} />
+                <div ref={mapBox.ref} style={{ flex: '1 1 360px', minWidth: 0 }}>
+                  <SeatMap rows={r.rows} onSeatClick={toggle} fillHeight={stacked ? undefined : Math.max(sideBox.height, 360)} />
                 </div>
               </div>
             </Card>

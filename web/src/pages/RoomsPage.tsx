@@ -17,7 +17,7 @@ export default function RoomsPage() {
   const rooms = useLoad(() => api.get<{ rooms: RoomSummary[] }>(`/rooms?q=${encodeURIComponent(q)}`), [q])
   const [name, setName] = useState('')
   const [building, setBuilding] = useState('')
-  const [grid, setGrid] = useState<Grid>(() => makeGrid(5, 8))
+  const [grid, setGrid] = useState<Grid>(() => makeGrid(10, 10))
   const [error, setError] = useState('')
 
   const create = async (e: React.FormEvent) => {

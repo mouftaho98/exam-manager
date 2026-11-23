@@ -10,12 +10,14 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Group, NumberInput, SegmentedControl, Stack, Text } from '@mantine/core'
 import type { Room } from '../lib/types'
-import { useCellSize } from '../lib/useCellSize'
+import { fitCells, useElementSize } from '../lib/useCellSize'
 
 export type Cell = { accessible: boolean; leftHanded: boolean; broken: boolean } | null
 export type Grid = Cell[][]
 type Tool = 'seat' | 'accessible' | 'leftHanded' | 'broken'
 
+/** Height taken by the "Front of room" bar above the seats. */
+const HEADER_HEIGHT = 34
 const MAX_ROWS = 40
 const MAX_COLS = 60
 const plainSeat = () => ({ accessible: false, leftHanded: false, broken: false })
@@ -153,13 +155,19 @@ export default function RoomBuilder({ grid, onChange, side, actions }: Props) {
   const labels = seatLabels(grid)
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
-  // Seats shrink as rows/columns are added so the map keeps filling the space.
-  const fit = useCellSize(cols, rows, { max: 90 })
+  // The map fills the box next to the sidebar: as wide as the space allows
+  // and as tall as the sidebar. Adding rows or columns shrinks the seats, so
+  // the map keeps the same size. When the columns stack (phones), seats keep
+  // their normal shape instead.
+  const sideBox = useElementSize()
+  const mapBox = useElementSize()
+  const stacked = mapBox.top > sideBox.top + 20
+  const fit = fitCells(cols, rows, mapBox.width, stacked ? { max: 90 } : { height: sideBox.height - HEADER_HEIGHT })
 
   return (
     // Controls on the left, the map on the right; they stack on narrow screens.
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-start' }}>
-      <Stack gap="sm" style={{ flex: '0 0 250px', minWidth: 0 }}>
+      <Stack ref={sideBox.ref} gap="sm" style={{ flex: '0 0 250px', minWidth: 0 }}>
         {side}
         <Group gap="xs" grow>
           <NumberInput label="Rows" value={rows} min={1} max={MAX_ROWS} onChange={(v) => resize(Number(v), cols)} />
@@ -195,9 +203,9 @@ export default function RoomBuilder({ grid, onChange, side, actions }: Props) {
         {actions}
       </Stack>
 
-      <div ref={fit.ref} style={{ flex: '1 1 360px', minWidth: 0, overflowX: 'auto', paddingBottom: 4 }}>
+      <div ref={mapBox.ref} style={{ flex: '1 1 360px', minWidth: 0, overflowX: 'auto' }}>
         <div
-          style={{ display: 'inline-block', touchAction: 'none', userSelect: 'none' }}
+          style={{ display: 'inline-flex', flexDirection: 'column', gap: fit.gap, touchAction: 'none', userSelect: 'none' }}
           onPointerDown={(e) => {
             const hit = cellAt(e.clientX, e.clientY)
             if (!hit) return
@@ -220,11 +228,11 @@ export default function RoomBuilder({ grid, onChange, side, actions }: Props) {
             s.last = hit
           }}
         >
-          <div style={{ textAlign: 'center', fontSize: 12, color: '#495057', background: '#f1f3f5', borderRadius: 4, padding: '3px 0', marginBottom: fit.gap * 2 }}>
+          <div style={{ height: HEADER_HEIGHT - 8 - fit.gap, lineHeight: `${HEADER_HEIGHT - 8 - fit.gap}px`, textAlign: 'center', fontSize: 12, color: '#495057', background: '#f1f3f5', borderRadius: 4, marginBottom: 8 }}>
             Front of room
           </div>
           {grid.map((row, r) => (
-            <div key={r} style={{ display: 'flex', gap: fit.gap, marginBottom: fit.gap }}>
+            <div key={r} style={{ display: 'flex', gap: fit.gap }}>
               {row.map((cell, c) => (
                 <div
                   key={c}
