@@ -68,6 +68,44 @@ jobs:
           doctl registry login --expiry-seconds 3600
           doctl kubernetes cluster kubeconfig save "$CLUSTER" --expiry-seconds 3600
 
+      # The free registry plan holds ~524 MB and each API image is ~175 MB.
+      # Keep only the images the cluster is running now (so a rollback still
+      # works), delete every other tag, and garbage-collect to free the space
+      # before pushing the new version.
+      - name: Make room in the registry
+        run: |
+          REGISTRY_NAME="${REPOSITORY#registry.digitalocean.com/}"; REGISTRY_NAME="${REGISTRY_NAME%%/*}"
+          REPO_NAME="${REPOSITORY##*/}"
+          live=$(kubectl -n "$NAMESPACE" get deployment api web -o jsonpath='{range .items[*]}{.spec.template.spec.containers[0].image}{"\n"}{end}' | sed -n 's/.*@//p')
+          echo "Live digests:"; echo "$live"
+          deleted=0
+          while read -r tag digest; do
+            [ -z "$tag" ] && continue
+            if echo "$live" | grep -qx "$digest"; then
+              echo "keep   $tag (live)"
+            else
+              echo "delete $tag"
+              doctl registry repository delete-tag "$REPO_NAME" "$tag" --force
+              deleted=1
+            fi
+          done < <(doctl registry repository list-tags "$REPO_NAME" -o json | jq -r '.[] | "\(.tag) \(.manifest_digest)"')
+          wait_for_gc() {
+            for _ in $(seq 1 60); do
+              status=$(doctl registry garbage-collection get-active "$REGISTRY_NAME" --format Status --no-header 2>/dev/null || true)
+              case "$status" in
+                ""|succeeded|failed|cancelled) return 0 ;;
+                *) echo "garbage collection: $status"; sleep 10 ;;
+              esac
+            done
+            echo "garbage collection is taking too long"; return 1
+          }
+          wait_for_gc   # one may already be running
+          if [ "$deleted" = 1 ]; then
+            doctl registry garbage-collection start "$REGISTRY_NAME" --include-untagged-manifests --force
+            sleep 5
+            wait_for_gc
+          fi
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Build and push the API image
