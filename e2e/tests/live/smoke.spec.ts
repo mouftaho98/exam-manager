@@ -4,7 +4,7 @@
  */
 import { expect, test } from "@playwright/test";
 
-const API_URL = process.env.LIVE_API_URL ?? "http://209.38.1.216";
+const API_URL = process.env.LIVE_API_URL ?? "http://uoft-rollcall-api.duckdns.org";
 
 test("API is up and can reach the database", async ({ request }) => {
   expect((await request.get(`${API_URL}/health`)).ok()).toBe(true);
