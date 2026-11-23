@@ -1,0 +1,31 @@
+# Route each hostname's HTTPS traffic to its Service. Socket.IO uses WebSockets on
+# the same listener, which Envoy proxies without extra configuration.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: web
+spec:
+  parentRefs:
+    - name: rollcall
+      sectionName: web-https
+  hostnames:
+    - uoft-rollcall.duckdns.org
+  rules:
+    - backendRefs:
+        - name: web
+          port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api
+spec:
+  parentRefs:
+    - name: rollcall
+      sectionName: api-https
+  hostnames:
+    - uoft-rollcall-api.duckdns.org
+  rules:
+    - backendRefs:
+        - name: api
+          port: 3000

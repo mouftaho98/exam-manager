@@ -7,3 +7,4 @@ build/
 .next/
 coverage/
 *.tar.gz
+.playwright-mcp/
