@@ -66,9 +66,10 @@ Before running, install `api/` and `web/` (`npm ci` in each, plus `npx prisma ge
 - [x] Seating-need columns in a roster are ignored
 
 ### Rooms (`rooms.spec.ts`)
-- [x] Draw a room with rows of different lengths
+- [x] Draw a room on the grid: drag to make an aisle and a walkway, click to shorten a row, paint accessible and broken seats; labels skip aisles and walkways
+- [x] A room needs at least one seat
 - [x] Toggle accessible / left-handed / broken seats; saved; broken seats don't count toward capacity
-- [x] Change the layout until students are seated there
+- [x] Redraw the layout (the builder opens with the current room) until students are seated there
 - [x] Marking an occupied seat broken warns about it
 - [x] Proctors can draw rooms; students can't
 - [x] Someone else's room is view-only

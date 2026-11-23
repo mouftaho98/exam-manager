@@ -12,6 +12,7 @@ npm run build                                    # typecheck + production build
 - `src/lib/socket.ts`: live exam-day updates over Socket.IO.
 - `src/pages/`: one file per route (see `src/App.tsx`). Roles are per course offering, so everyone shares one dashboard and each page asks the API what you can do there.
 - `src/components/SeatMap.tsx`: draws a room's seats. Used for editing rooms, the student's seat view and the proctor's live seating chart.
+- `src/components/RoomBuilder.tsx`: draw a room on a grid. Click or drag to place seats, leave gaps for aisles and empty rows for walkways, and paint accessible / left-handed / broken seats.
 - `src/components/CardScanner.tsx`: scans the barcode on a student ID card with the phone camera. This only works over HTTPS or on localhost.
 
 UI tests live in `../e2e`.

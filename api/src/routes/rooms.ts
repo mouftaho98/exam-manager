@@ -28,16 +28,21 @@ const seatSpec = z.object({
 
 // A row is either a seat count ("12" -> cols 0..11) or an explicit list of
 // seats whose `col` values can skip numbers for aisles. Rows can differ in
-// length, so rooms don't have to be rectangles.
+// length, so rooms don't have to be rectangles. An empty list is a walkway
+// between rows: it takes up a row position but has no seats.
 const rowSpec = z.object({
   label: z.string().trim().min(1).max(10).optional(),
-  seats: z.union([z.number().int().min(1).max(500), z.array(seatSpec).min(1).max(500)]),
+  seats: z.union([z.number().int().min(1).max(500), z.array(seatSpec).max(500)]),
 });
 
 const roomBody = z.object({
   name: z.string().trim().min(1).max(100),
   building: z.string().trim().max(100).optional(),
-  rows: z.array(rowSpec).min(1).max(200),
+  rows: z
+    .array(rowSpec)
+    .min(1)
+    .max(200)
+    .refine((rows) => rows.some((r) => typeof r.seats === "number" || r.seats.length > 0), { message: "A room needs at least one seat" }),
 });
 
 // Changing the flags on one seat.

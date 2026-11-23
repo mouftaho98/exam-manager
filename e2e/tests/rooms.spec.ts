@@ -2,23 +2,66 @@
  * Rooms and seat maps. Rooms are shared across courses, rows can differ in
  * length, and only teaching staff can draw or edit them.
  */
-import { test } from "@playwright/test";
+import { test, type Page } from "@playwright/test";
 import { createExam, createRoom, expect, generate, instructor, join, openAs, register, seedOffering, seedStudents, uid } from "./helpers";
 
-test("instructor draws a room with rows of different lengths", async ({ page }) => {
+/** Drag the mouse from one builder square to another (a brush stroke). */
+async function drag(page: Page, from: [number, number], to: [number, number]) {
+  const a = (await page.getByTestId(`cell-${from[0]}-${from[1]}`).boundingBox())!;
+  const b = (await page.getByTestId(`cell-${to[0]}-${to[1]}`).boundingBox())!;
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 3 });
+  await page.mouse.up();
+}
+
+async function setGrid(page: Page, rows: number, cols: number) {
+  await page.getByLabel("Rows").fill(String(rows));
+  await page.getByLabel("Columns").fill(String(cols));
+  await page.getByRole("button", { name: "Fill with seats" }).click();
+}
+
+test("instructor draws a room: an aisle, a walkway, uneven rows and markings", async ({ page }) => {
   const prof = await instructor();
   await openAs(page, prof, "/dashboard");
   await page.getByRole("link", { name: "Rooms", exact: true }).click();
   const name = `BA ${uid()}`;
   await page.getByLabel("Room name").fill(name);
   await page.getByLabel("Building").fill("Bahen");
-  await page.getByLabel(/Seats per row/).fill("3, 5, 4");
+  await setGrid(page, 4, 5);
+  await expect(page.getByTestId("builder-count")).toHaveText("20 usable seats");
+
+  await drag(page, [0, 2], [3, 2]); // aisle down the middle column
+  await drag(page, [1, 0], [1, 4]); // walkway across row 2
+  await page.getByTestId("cell-3-4").click(); // last row is one seat shorter
+  await expect(page.getByTestId("builder-count")).toHaveText("11 usable seats");
+  // Labels skip the walkway row and the aisle: row 3 is "B", numbered 1..4.
+  await expect(page.getByTestId("cell-2-3")).toHaveText("B3");
+
+  await page.getByText("Accessible", { exact: true }).first().click();
+  await drag(page, [0, 0], [0, 1]);
+  await page.getByText("Broken", { exact: true }).first().click();
+  await page.getByTestId("cell-3-0").click();
+  await expect(page.getByTestId("builder-count")).toHaveText("10 usable seats (1 broken)");
+
   await page.getByRole("button", { name: "Create room" }).click();
   await expect(page.getByRole("heading", { name: `${name} · Bahen` })).toBeVisible();
-  await expect(page.getByText("12 usable seats")).toBeVisible();
-  await expect(page.getByRole("button", { name: "A3", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "B5", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "A4", exact: true })).toHaveCount(0);
+  await expect(page.getByText("10 usable seats")).toBeVisible();
+  await expect(page.getByRole("button", { name: "A1 (accessible)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "A2 (accessible)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "C1 (broken)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "C3", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "C4", exact: true })).toHaveCount(0);
+});
+
+test("a room needs at least one seat", async ({ page }) => {
+  const prof = await instructor();
+  await openAs(page, prof, "/rooms");
+  await page.getByLabel("Room name").fill("Empty");
+  await page.getByRole("button", { name: "Clear" }).click();
+  await expect(page.getByTestId("builder-count")).toHaveText("0 usable seats");
+  await page.getByRole("button", { name: "Create room" }).click();
+  await expect(page.getByRole("alert")).toContainText("Add at least one seat");
 });
 
 test("seat markings toggle on and off and are saved; broken seats don't count", async ({ page }) => {
@@ -53,14 +96,18 @@ test("the layout can be changed until students are seated in the room", async ({
   const { prof, offering } = await seedOffering();
   const room = await createRoom(prof, [2, 2]);
   await openAs(page, prof, `/rooms/${room.id}`);
-  await page.getByLabel("Seats per row").fill("4, 4, 4");
+  await page.getByRole("button", { name: "Edit layout" }).click();
+  // The builder opens with the room as it is.
+  await expect(page.getByTestId("builder-count")).toHaveText("4 usable seats");
+  await setGrid(page, 3, 4);
   await page.getByRole("button", { name: "Save layout" }).click();
   await expect(page.getByText("12 usable seats")).toBeVisible();
 
   await seedStudents(prof, offering.id, 2);
   const exam = await createExam(prof, offering.id, [room.id]);
   await generate(prof, exam.id);
-  await page.getByLabel("Seats per row").fill("2");
+  await page.getByRole("button", { name: "Edit layout" }).click();
+  await setGrid(page, 1, 2);
   await page.getByRole("button", { name: "Save layout" }).click();
   await expect(page.getByRole("alert")).toContainText("already seated in this room");
 });
@@ -84,7 +131,7 @@ test("proctors can draw rooms too", async ({ page }) => {
   await openAs(page, proctor, "/dashboard");
   await page.getByRole("link", { name: "Rooms", exact: true }).click();
   await page.getByLabel("Room name").fill(`SS ${uid()}`);
-  await page.getByLabel(/Seats per row/).fill("2");
+  await setGrid(page, 1, 2);
   await page.getByRole("button", { name: "Create room" }).click();
   await expect(page.getByText("2 usable seats")).toBeVisible();
 });

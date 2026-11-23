@@ -23,13 +23,17 @@ type Props<S extends Seat> = {
 
 export default function SeatMap<S extends Seat>({ rows, look = markingLook, onSeatClick }: Props<S>) {
   return (
-    <Stack gap={4} style={{ overflowX: 'auto' }} data-testid="seat-map">
-      <Text size="xs" c="dimmed" ta="center">Front of room</Text>
-      {rows.map((r) => {
+    <div style={{ overflowX: 'auto' }}>
+    {/* inline-block so "Front of room" is centred over the seats, not the page */}
+    <Stack gap={4} style={{ display: 'inline-flex' }} data-testid="seat-map">
+      <Text size="xs" c="dimmed" ta="center" bg="gray.1" style={{ borderRadius: 4 }}>Front of room</Text>
+      {rows.map((r, i) => {
+        // A gap in row numbers is a walkway; leave the space for it.
+        const walkway = i > 0 && r.row - rows[i - 1].row > 1 ? (r.row - rows[i - 1].row - 1) * 40 : 0
         const maxCol = Math.max(...r.seats.map((s) => s.col))
         const byCol = new Map(r.seats.map((s) => [s.col, s]))
         return (
-          <Group key={r.row} gap={4} wrap="nowrap">
+          <Group key={r.row} gap={4} wrap="nowrap" mt={walkway}>
             {Array.from({ length: maxCol + 1 }, (_, col) => {
               const seat = byCol.get(col)
               if (!seat) return <div key={col} style={{ width: 44, height: 36 }} />
@@ -55,5 +59,6 @@ export default function SeatMap<S extends Seat>({ rows, look = markingLook, onSe
         )
       })}
     </Stack>
+    </div>
   )
 }

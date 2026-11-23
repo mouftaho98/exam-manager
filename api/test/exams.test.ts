@@ -63,6 +63,21 @@ describe("rooms, exams and seating", () => {
     roomB = b.body.room;
   });
 
+  it("keeps empty rows as walkways, and needs at least one seat", async () => {
+    const res = await api()
+      .post("/rooms")
+      .set(auth(instructor.token))
+      .send({ name: "Walkway", rows: [{ label: "A", seats: 2 }, { seats: [] }, { label: "B", seats: [{ col: 0, label: "B1" }, { col: 3, label: "B2" }] }] });
+    expect(res.status).toBe(201);
+    // Row positions keep the gap, so the map can draw the walkway.
+    expect(res.body.room.rows.map((r: { row: number }) => r.row)).toEqual([0, 2]);
+    expect(res.body.room.rows[1].seats.map((s: { label: string }) => s.label)).toEqual(["B1", "B2"]);
+    expect(res.body.room.capacity).toBe(4);
+
+    const empty = await api().post("/rooms").set(auth(instructor.token)).send({ name: "Empty", rows: [{ seats: [] }] });
+    expect(empty.status).toBe(400);
+  });
+
   it("only lets instructors and proctors create rooms", async () => {
     const res = await api().post("/rooms").set(auth(student.token)).send({ name: "Nope", rows: [{ seats: 2 }] });
     expect(res.status).toBe(403);
