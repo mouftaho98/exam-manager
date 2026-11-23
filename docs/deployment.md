@@ -53,7 +53,7 @@ kubectl -n exam-manager get secret "$REGISTRY"
 
 The registry integration supplies the pull Secret in the namespace. Confirm it exists before deploying.
 
-The web image cannot be built until you know the public API address, because Vite compiles it into the bundle. Build it after step 4 (Expose the API over public HTTPS), using the same terminal so `API_HOST` is set.
+The web image cannot be built until you know the public API address, because Vite compiles it into the bundle. Set `API_HOST` to the API hostname (for example `uoft-rollcall-api.duckdns.org`) and build it in the same terminal.
 
 ```sh
 WEB_REPOSITORY="registry.digitalocean.com/$REGISTRY/exam-manager-web"
@@ -111,59 +111,72 @@ The initial claim is 10 GiB. Plan backups before storing real data.
 
 Each API pod requests 200m CPU and 128 MiB, with a 512 MiB memory limit and no CPU limit. A CPU limit would throttle pods during a check-in spike, and the HPA measures CPU relative to the request.
 
-### Expose the API over public HTTPS
+### Expose the app over public HTTPS
 
-Use a public API hostname and a matching certificate in the DigitalOcean project. Set `API_HOST` to that hostname and `API_TLS_CERTIFICATE_NAME` to the exact name of the issued certificate returned by `doctl compute certificate list`. Apply the public Service and wait for its external IP.
+HTTPS uses one Gateway (Cilium's Gateway API controller, already enabled on the cluster) and cert-manager with Let's Encrypt. The Gateway gets a single DigitalOcean load balancer, routes `uoft-rollcall.duckdns.org` to the `web` Service and `uoft-rollcall-api.duckdns.org` to the `api` Service, and cert-manager issues and renews the certificates. The manifests are in `k8s/gateway/`.
 
-```sh
-sed "s|API_TLS_CERTIFICATE_NAME|${API_TLS_CERTIFICATE_NAME:?Set the certificate name}|" k8s/api-public.yaml |
-  kubectl -n exam-manager apply -f -
-kubectl -n exam-manager get svc api-public -w
-```
+1. Install cert-manager and enable its Gateway API support. The `--enable-gateway-api` flag isn't in the release manifest, so add it to the controller.
 
-Point the API hostname's DNS A record to the external IP, then verify from outside the cluster.
+   ```sh
+   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.3/cert-manager.yaml
+   kubectl -n cert-manager patch deploy cert-manager --type=json \
+     -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--enable-gateway-api"}]'
+   kubectl -n cert-manager rollout status deploy/cert-manager deploy/cert-manager-webhook
+   ```
 
-```sh
-curl -fsS "https://$API_HOST/health"
-curl -fsS "https://$API_HOST/ready"
-```
+2. Create the issuers, the Gateway and the routes. Edit the contact email in `k8s/gateway/issuers.yaml` first. The Gateway's `cert-manager.io/cluster-issuer` annotation selects the issuer. Start with `letsencrypt-staging` to avoid rate limits, then switch to `letsencrypt-prod`.
 
-The regional load balancer terminates TLS, supports WebSocket upgrades, and health-checks each pod on `/ready`, so a pod that loses its database stops receiving traffic. The web client connects with Socket.IO's default transports, which start with HTTP long-polling and then upgrade. Polling requests must reach the same pod, so the Service enables cookie-based sticky sessions. Cookie affinity only works at the load balancer, so keep it if you change the Service. [DigitalOcean load balancer configuration](https://docs.digitalocean.com/products/kubernetes/how-to/configure-load-balancers/) · [WebSocket support](https://docs.digitalocean.com/products/networking/load-balancers/details/features/#websocket-support)
+   ```sh
+   kubectl apply -f k8s/gateway/issuers.yaml
+   kubectl -n exam-manager apply -f k8s/gateway/gateway.yaml -f k8s/gateway/routes.yaml
+   kubectl -n exam-manager get gateway rollcall   # ADDRESS is the load balancer IP
+   ```
+
+3. Point both DuckDNS names at that IP. Let's Encrypt validates over HTTP on port 80, so the records must resolve before certificates can be issued. Watch them with `kubectl -n exam-manager get certificate`.
+
+4. When both certificates are `READY`, switch the annotation to `letsencrypt-prod`, delete the staging `web-tls` and `api-tls` Certificates and Secrets so they are reissued, then add the HTTP to HTTPS redirect.
+
+   ```sh
+   kubectl -n exam-manager apply -f k8s/gateway/redirect.yaml
+   ```
+
+5. Verify from outside the cluster.
+
+   ```sh
+   curl -fsS https://uoft-rollcall-api.duckdns.org/ready
+   curl -fsSI https://uoft-rollcall.duckdns.org/
+   ```
+
+The Gateway terminates TLS and proxies WebSocket upgrades. The web client opens Socket.IO with `transports: ['websocket']`, so no sticky sessions are needed. Backend health is handled by each pod's readiness probe, which removes a pod that loses its database from the Service endpoints. cert-manager renews certificates automatically about 30 days before they expire. [cert-manager Gateway API](https://cert-manager.io/docs/usage/gateway/) · [ACME HTTP-01 with Gateway API](https://cert-manager.io/docs/configuration/acme/http01/#configuring-the-http-01-gateway-api-solver)
 
 For a manual API-only update, set `API_IMAGE` to the new pushed digest and run `kubectl -n exam-manager set image deployment/api api="$API_IMAGE"`. Wait for rollout and verify `/ready` and the changed feature.
 
 ### Deploy the web app
 
-Use a second hostname and certificate for the web app. Set `WEB_HOST` and `WEB_TLS_CERTIFICATE_NAME`, set `WEB_IMAGE` to the pushed web digest, and make sure the API Secret's `CORS_ORIGIN` is `https://$WEB_HOST`. After changing the Secret, restart the API with `kubectl -n exam-manager rollout restart deployment/api`.
+Set `WEB_IMAGE` to the pushed web digest and make sure the API Secret's `WEB_URL` and `CORS_ORIGIN` use the public `https://` web address. After changing the Secret, restart the API with `kubectl -n exam-manager rollout restart deployment/api`. `k8s/web.yaml` creates the Deployment and the internal `web` Service that the Gateway routes to.
 
 ```sh
 WEB_IMAGE="$WEB_REPOSITORY@sha256:REPLACE_WITH_WEB_DIGEST"
 sed -e "s|WEB_IMAGE|$WEB_IMAGE|" \
-    -e "s|WEB_TLS_CERTIFICATE_NAME|${WEB_TLS_CERTIFICATE_NAME:?Set the certificate name}|" \
     -e '/^      containers:/i\
       imagePullSecrets:\
         - name: '"$REGISTRY"'
 ' k8s/web.yaml | kubectl -n exam-manager apply -f -
 kubectl -n exam-manager rollout status deployment/web --timeout=2m
-kubectl -n exam-manager get svc web-public -w
 ```
 
-Point the web hostname's DNS A record to the external IP, then open `https://$WEB_HOST`, sign up, and confirm the browser console shows no CORS errors. Two web pods use about 50m CPU and 64 MiB in total.
+Open `https://uoft-rollcall.duckdns.org`, sign up, and confirm the browser console shows no CORS errors. Two web pods use about 50m CPU and 64 MiB in total.
 
 ### Staging without a domain (plain HTTP)
 
-Until you have a hostname and certificate, `k8s/plain/` exposes both Services over HTTP on port 80. Browsers block camera access on plain HTTP, so QR scanning won't work, but the typed-email and barcode check-in still do. Create both load balancers first to get their IPs, because each address is needed by the other component.
+Until you have a hostname, `k8s/plain/` exposes both Services over HTTP on port 80 with one load balancer each. Browsers block camera access on plain HTTP, so QR scanning won't work, but the typed-email and barcode check-in still do. Create both load balancers first to get their IPs, because each address is needed by the other component.
 
 ```sh
 kubectl -n exam-manager apply -f k8s/plain/api-public.yaml -f k8s/plain/web-public.yaml
 kubectl -n exam-manager get svc api-public web-public -w
 ```
 
-With `API_IP` and `WEB_IP` from the `EXTERNAL-IP` column, build the web image with `--build-arg VITE_API_URL="http://$API_IP"`. Add `WEB_URL` and `CORS_ORIGIN` as `http://$WEB_IP` to the `api-credentials` Secret and roll out the API as above. Deploy only the Deployment from `k8s/web.yaml`, because the Service in that file is the HTTPS one.
-
-```sh
-awk '/^---$/{exit} {print}' k8s/web.yaml | sed "s|WEB_IMAGE|$WEB_IMAGE|" | kubectl -n exam-manager apply -f -
-```
+With `API_IP` and `WEB_IP` from the `EXTERNAL-IP` column, build the web image with `--build-arg VITE_API_URL="http://$API_IP"`. Add `WEB_URL` and `CORS_ORIGIN` as `http://$WEB_IP` to the `api-credentials` Secret and roll out the API as above. Then deploy `k8s/web.yaml` as shown in the previous section.
 
 The web app is then at `http://$WEB_IP`. The starter registry plan allows one repository, so the web image can't have its own repository. Push it as a tag of `exam-manager-api` (for example `web-<commit>`), or upgrade the registry to the Basic plan. Both load balancers are billed while they exist, so delete them with `kubectl -n exam-manager delete svc api-public web-public` when the demo is over.
 
@@ -215,21 +228,34 @@ In Uptime, create an HTTPS check for `https://$API_HOST/ready`. Add a downtime a
 
 ## 5. Exercise concurrent student check-ins
 
-The workload calls `POST /exams/:id/checkin` with `{"email":"<student email>"}`, which returns HTTP 200 for every successful check-in. Seed a staging course through the app or API with a roster of synthetic students, one room large enough for all of them, and an exam with generated seating. Sign in as the instructor to get a token. Save a JSON array of unique bodies in a private file, one `{"email":"..."}` per student. Keep fixtures and credentials outside Git.
+The workload calls `POST /exams/:examId/checkins` with `{"roomId":"...","studentId":"..."}`. A new check-in returns HTTP 201, and a repeat for the same student returns 200 without creating a second row. The script expects 201 for every request, so each run needs fresh students.
 
-The script needs at least `rate × 240` unique bodies, so 10 check-ins per second needs 2,400 students and 50 per second needs 12,000. Roster uploads accept CSV with `name,email` columns. Rooms accept up to 50 × 50 seats.
-
-Set `API_HOST`, `EXAM_ID`, `TOKEN`, and `FIXTURES` in your shell, then run the test. Use the Docker image if k6 isn't installed locally.
+[`load-tests/seed.mjs`](../load-tests/seed.mjs) creates everything the test needs and writes the fixtures: a course, an offering, one large room, a roster of synthetic students (`loadtest-*@example.com`), an exam with generated seating, and one request body per student. It needs the token of an **approved instructor**. Register a throwaway account in the app, make it an admin and approved instructor from inside the API pod (the account must have registered first), and log in to get a token:
 
 ```sh
-BASE_URL="https://$API_HOST" CHECK_IN_PATH="/exams/$EXAM_ID/checkin" \
+kubectl -n exam-manager exec deploy/api -- node dist/scripts/make-admin.js loadtest-admin@example.com
+curl -fsS -X POST "https://$API_HOST/auth/login" -H 'content-type: application/json' \
+  -d '{"email":"loadtest-admin@example.com","password":"<password>"}'   # copy the token
+```
+
+The script needs at least `rate × 240` unique bodies, so 10 check-ins per second needs 2,400 students and 50 per second needs 12,000. The seed script sizes the room for the student count, up to 200 rows of 100 seats. Keep fixtures and tokens outside Git.
+
+```sh
+API_URL="https://$API_HOST" TOKEN="$TOKEN" STUDENTS=2400 node load-tests/seed.mjs "$FIXTURES"
+# prints EXAM_ID=...
+```
+
+Then run the test. Use the Docker image if k6 isn't installed locally.
+
+```sh
+BASE_URL="https://$API_HOST" CHECK_IN_PATH="/exams/$EXAM_ID/checkins" \
   TOKEN="$TOKEN" FIXTURES="$FIXTURES" CHECK_INS_PER_SECOND=10 \
   k6 run load-tests/check-in.js
 ```
 
 ```sh
 docker run --rm -v "$PWD/load-tests:/s" -v "$(dirname "$FIXTURES"):/f" \
-  -e BASE_URL="https://$API_HOST" -e CHECK_IN_PATH="/exams/$EXAM_ID/checkin" \
+  -e BASE_URL="https://$API_HOST" -e CHECK_IN_PATH="/exams/$EXAM_ID/checkins" \
   -e TOKEN="$TOKEN" -e FIXTURES="/f/$(basename "$FIXTURES")" -e CHECK_INS_PER_SECOND=10 \
   grafana/k6:latest run /s/check-in.js
 ```
@@ -240,18 +266,23 @@ The script ramps for 30 seconds, holds for three minutes, and ramps down for 30 
 
 ```sh
 kubectl -n exam-manager exec postgres-0 -- sh -c \
-  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select count(*) filter (where \"checkedIn\"), count(*) from \"SeatAssignment\""'
+  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select count(*) from \"CheckIn\""'
 ```
 
-A local Compose run with 1,200 students at 5 per second (1,064 requests) passed all thresholds with p95 latency around 16 ms and matching database counts. That run did not exercise autoscaling, multiple pods, or the load balancer. Repeat it on staging at a higher rate before drawing conclusions.
+A local Compose run with 1,000 students at 4 per second (855 requests) passed all thresholds with p95 latency around 17 ms and 855 matching `CheckIn` rows. That run did not exercise autoscaling, multiple pods, or the load balancer. Repeat it on staging at a higher rate before drawing conclusions.
 
-Repeating a check-in for the same student returns 200 and does not create a second row, but it overwrites the student's `checkedInAt`. Test this by sending the same body twice and confirming the timestamp.
+Delete the synthetic data afterwards. Removing the course cascades to its offering, members, exams, seat assignments and check-ins. The throwaway users and the room stay, so remove them too:
+
+```sh
+kubectl -n exam-manager exec postgres-0 -- sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+  "delete from \"Course\" where code like '"'"'LOAD%'"'"'; delete from \"Room\" where name like '"'"'Load test %'"'"'; delete from \"User\" where email like '"'"'loadtest-%@example.com'"'"'"'
+```
 
 ### Verify live updates between pods
 
-The proctor page joins a room by emitting `joinExam` with the exam ID, then listens for `checkin` events. The current API does not authenticate these sockets, so treat live updates as unauthenticated until that changes.
+The proctor page connects with a login token (`auth: { token }`), joins an exam with `exam:join` and `{ examId }`, then listens for `checkin:created`. Only the exam's staff can join. Use `transports: ['websocket']`, as the web client does.
 
-Choose two ready API pods with `kubectl -n exam-manager get pods -l app=api`. Port-forward directly to each pod on a different local port. Connect a Socket.IO client to pod B, emit `joinExam`, and submit a check-in through pod A. Verify the POST returns 200 and the socket on pod B receives `checkin` for that student. If it does not, check that the API log shows `REDIS_URL` is set and that the `redis` pod is ready. Capture both pod names and the matching event for the report.
+Choose two ready API pods with `kubectl -n exam-manager get pods -l app=api`. Port-forward directly to each pod on a different local port. Connect a Socket.IO client to pod B with a staff token and join the exam, then submit a check-in through pod A. Verify the POST returns 201 and the socket on pod B receives `checkin:created` for that student. If it does not, check that the API log shows `Socket.IO using Redis adapter` and that the `redis` pod is ready. Capture both pod names and the matching event for the report.
 
 ## References
 

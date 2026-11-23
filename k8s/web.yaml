@@ -33,24 +33,15 @@ spec:
               path: /
               port: http
 ---
-# Public HTTPS entrypoint for the React app. Like api-public, the load balancer
-# terminates TLS and forwards plain HTTP to the pods.
+# Internal Service for the React app. Public HTTPS traffic reaches it through the
+# Gateway in k8s/gateway/, which routes the web hostname to this Service.
 apiVersion: v1
 kind: Service
 metadata:
-  name: web-public
-  annotations:
-    service.beta.kubernetes.io/do-loadbalancer-type: "REGIONAL"
-    service.beta.kubernetes.io/do-loadbalancer-protocol: "http"
-    service.beta.kubernetes.io/do-loadbalancer-tls-ports: "443"
-    service.beta.kubernetes.io/do-loadbalancer-certificate-name: "WEB_TLS_CERTIFICATE_NAME"
-    service.beta.kubernetes.io/do-loadbalancer-healthcheck-protocol: "http"
-    service.beta.kubernetes.io/do-loadbalancer-healthcheck-path: "/"
+  name: web
 spec:
-  type: LoadBalancer
   selector:
     app: web
   ports:
-    - name: https
-      port: 443
+    - port: 8080
       targetPort: http

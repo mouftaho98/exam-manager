@@ -1,0 +1,42 @@
+# Single public entrypoint for the app, served by Cilium's Gateway API controller.
+# Cilium creates one DigitalOcean load balancer for it (Service cilium-gateway-rollcall).
+# cert-manager watches the annotation below, creates a Certificate for every HTTPS
+# listener and stores it in the Secret named by certificateRefs.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: rollcall
+  annotations:
+    # Use letsencrypt-staging while testing: it has no rate limits but issues untrusted certificates.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: web-https
+      port: 443
+      protocol: HTTPS
+      hostname: uoft-rollcall.duckdns.org
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: web-tls
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: api-https
+      port: 443
+      protocol: HTTPS
+      hostname: uoft-rollcall-api.duckdns.org
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: api-tls
+      allowedRoutes:
+        namespaces:
+          from: Same

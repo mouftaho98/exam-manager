@@ -1,0 +1,43 @@
+# Let's Encrypt issuers for cert-manager. Both solve HTTP-01 challenges through the
+# Gateway's port-80 listener (see gateway.yaml). Start with staging: it has no
+# practical rate limit but issues untrusted certificates. Switch the Gateway
+# annotation to letsencrypt-prod once staging works.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: mzdcanada@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-staging-account
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - group: gateway.networking.k8s.io
+                kind: Gateway
+                name: rollcall
+                namespace: exam-manager
+                sectionName: http
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: mzdcanada@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-prod-account
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - group: gateway.networking.k8s.io
+                kind: Gateway
+                name: rollcall
+                namespace: exam-manager
+                sectionName: http
