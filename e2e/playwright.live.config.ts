@@ -10,7 +10,7 @@ export default defineConfig({
   retries: 1,
   reporter: [["list"]],
   use: {
-    baseURL: process.env.LIVE_URL ?? "http://146.190.191.196",
+    baseURL: process.env.LIVE_URL ?? "http://uoft-rollcall.duckdns.org",
     trace: "retain-on-failure",
   },
   projects: [{ name: "live", use: { ...devices["Desktop Chrome"] } }],

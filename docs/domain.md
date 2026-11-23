@@ -2,16 +2,18 @@
 
 ## Fastest: DuckDNS (free, no approval, about 5 minutes)
 
-1. Go to https://www.duckdns.org and sign in with GitHub.
+**In use now:** `uoft-rollcall.duckdns.org` (web) and `uoft-rollcall-api.duckdns.org` (API). The steps below are how they were set up.
+
+1. Go to https://www.duckdns.org and sign in with any of the accounts it offers (GitHub, Google, …).
 2. Add two subdomains and set each one's **current ip**:
 
    | Subdomain | IP |
    |---|---|
-   | `rollcall` (or any free name) | `146.190.191.196` (web) |
-   | `rollcall-api` | `209.38.1.216` (API) |
+   | `uoft-rollcall` | `146.190.191.196` (web) |
+   | `uoft-rollcall-api` | `209.38.1.216` (API) |
 
-3. In GitHub (**Settings → Secrets and variables → Actions → Variables**), set `PUBLIC_WEB_URL=http://rollcall.duckdns.org` and `PUBLIC_API_URL=http://rollcall-api.duckdns.org`.
-4. On the cluster, set `WEB_URL` and `CORS_ORIGIN` in the `api-credentials` Secret to `http://rollcall.duckdns.org`, then run `kubectl -n exam-manager rollout restart deployment/api`.
+3. In GitHub (**Settings → Secrets and variables → Actions → Variables**), set `PUBLIC_WEB_URL=http://uoft-rollcall.duckdns.org` and `PUBLIC_API_URL=http://uoft-rollcall-api.duckdns.org`.
+4. On the cluster, set `WEB_URL=http://uoft-rollcall.duckdns.org` and `CORS_ORIGIN=http://uoft-rollcall.duckdns.org,http://146.190.191.196` (comma-separated, no spaces) in the `api-credentials` Secret, then run `kubectl -n exam-manager rollout restart deployment/api`.
 5. Run **Actions → Deploy → Run workflow**, which rebuilds the web app against the new API address.
 
 DuckDNS names work with Let's Encrypt, so the HTTPS section below works the same way.

@@ -4,7 +4,7 @@ A cloud-native exam-day manager for university courses: automatic exam seating a
 
 ECE1779 Introduction to Cloud Computing, Fall 2026, University of Toronto.
 
-**Live site:** http://146.190.191.196 (API: http://209.38.1.216, health check at [`/ready`](http://209.38.1.216/ready))
+**Live site:** http://uoft-rollcall.duckdns.org (API: http://uoft-rollcall-api.duckdns.org, health check at [`/ready`](http://uoft-rollcall-api.duckdns.org/ready))
 
 > Final report (README.md, max 5000 words). Sections below follow the course handout.
 
@@ -47,13 +47,15 @@ RollCall runs on DigitalOcean Kubernetes (DOKS):
 
 | What | URL |
 |---|---|
-| Web app | http://146.190.191.196 |
-| API | http://209.38.1.216 |
-| API liveness / readiness | http://209.38.1.216/health, http://209.38.1.216/ready |
+| Web app | http://uoft-rollcall.duckdns.org |
+| API | http://uoft-rollcall-api.duckdns.org |
+| API liveness / readiness | http://uoft-rollcall-api.duckdns.org/health, http://uoft-rollcall-api.duckdns.org/ready |
+
+The names come from [DuckDNS](https://www.duckdns.org) and point at the two DigitalOcean load balancers (web `146.190.191.196`, API `209.38.1.216`), which still answer on their IPs too.
 
 The web app and the API each sit behind their own DigitalOcean load balancer. Both are plain HTTP for now. Phone cameras only work over HTTPS, so scanning student ID cards with a phone won't work on the live site until HTTPS is set up; typing the student number works everywhere. Kubernetes manifests are in `k8s/`.
 
-**Domain:** we're getting a free `.tech` domain through the GitHub Student Developer Pack. The steps are in [docs/domain.md](docs/domain.md).
+**Domain:** the DuckDNS names are free and set up in [docs/domain.md](docs/domain.md), which also covers moving to a `.tech` domain from the GitHub Student Developer Pack and adding HTTPS. Every push to `main` deploys automatically (`.github/workflows/deploy.yml`, see [docs/deployment.md](docs/deployment.md#continuous-deployment)).
 
 See the [deployment runbook](docs/deployment.md) for local setup, DigitalOcean Kubernetes deployment, monitoring, and load testing.
 
