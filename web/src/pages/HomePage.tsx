@@ -1,62 +1,26 @@
-import { useNavigate } from 'react-router-dom'
-import {
-  AppShell,
-  Button,
-  Card,
-  Container,
-  Group,
-  Stack,
-  Text,
-  Title,
-} from '@mantine/core'
+/** Landing page. Signed-in visitors go straight to their dashboard. */
+import { Navigate, useNavigate } from 'react-router-dom'
+import { Button, Card, Stack, Text, Title } from '@mantine/core'
+import { getToken } from '../lib/api'
+import PublicFrame from './PublicFrame'
 
 export default function HomePage() {
   const navigate = useNavigate()
-
+  if (getToken()) return <Navigate to="/dashboard" replace />
   return (
-    <AppShell header={{ height: 60 }} padding="md">
-      <AppShell.Header>
-        <Group h="100%" px="md" justify="space-between">
-          <Title order={3}>RollCall</Title>
-          <Text size="sm" c="dimmed">
-            Exam Manager
-          </Text>
-        </Group>
-      </AppShell.Header>
-
-      <AppShell.Main>
-        <Container size="sm" py="xl">
-          <Stack gap="lg">
-            <div>
-              <Title order={1}>Welcome to RollCall</Title>
-              <Text c="dimmed" mt="xs">
-                Cloud-based exam seating and live check-in for instructors, proctors, and students.
-              </Text>
-            </div>
-
-            <Card withBorder shadow="sm" radius="md" padding="lg">
-              <Stack gap="sm">
-                <Title order={4}>Get started</Title>
-                <Text size="sm" c="dimmed">
-                  Sign in or create an account to continue.
-                </Text>
-                <Stack gap="sm">
-                  <Button fullWidth variant="filled" onClick={() => navigate('/login')}>
-                    Log in
-                  </Button>
-                  <Button fullWidth variant="outline" onClick={() => navigate('/signup')}>
-                    Sign up
-                  </Button>
-                </Stack>
-              </Stack>
-            </Card>
-
-            <Text size="xs" c="dimmed">
-              Mobile-friendly by design. Backend integration coming next.
-            </Text>
+    <PublicFrame>
+      <Stack gap="lg">
+        <div>
+          <Title order={1}>Welcome to RollCall</Title>
+          <Text c="dimmed" mt="xs">Exam seating and live multi-room check-in for instructors, proctors and students.</Text>
+        </div>
+        <Card withBorder shadow="sm" radius="md" padding="lg">
+          <Stack gap="sm">
+            <Button fullWidth onClick={() => navigate('/login')}>Log in</Button>
+            <Button fullWidth variant="outline" onClick={() => navigate('/signup')}>Sign up</Button>
           </Stack>
-        </Container>
-      </AppShell.Main>
-    </AppShell>
+        </Card>
+      </Stack>
+    </PublicFrame>
   )
 }
