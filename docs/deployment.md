@@ -228,21 +228,34 @@ In Uptime, create an HTTPS check for `https://$API_HOST/ready`. Add a downtime a
 
 ## 5. Exercise concurrent student check-ins
 
-The workload calls `POST /exams/:id/checkin` with `{"email":"<student email>"}`, which returns HTTP 200 for every successful check-in. Seed a staging course through the app or API with a roster of synthetic students, one room large enough for all of them, and an exam with generated seating. Sign in as the instructor to get a token. Save a JSON array of unique bodies in a private file, one `{"email":"..."}` per student. Keep fixtures and credentials outside Git.
+The workload calls `POST /exams/:examId/checkins` with `{"roomId":"...","studentId":"..."}`. A new check-in returns HTTP 201, and a repeat for the same student returns 200 without creating a second row. The script expects 201 for every request, so each run needs fresh students.
 
-The script needs at least `rate × 240` unique bodies, so 10 check-ins per second needs 2,400 students and 50 per second needs 12,000. Roster uploads accept CSV with `name,email` columns. Rooms accept up to 50 × 50 seats.
-
-Set `API_HOST`, `EXAM_ID`, `TOKEN`, and `FIXTURES` in your shell, then run the test. Use the Docker image if k6 isn't installed locally.
+[`load-tests/seed.mjs`](../load-tests/seed.mjs) creates everything the test needs and writes the fixtures: a course, an offering, one large room, a roster of synthetic students (`loadtest-*@example.com`), an exam with generated seating, and one request body per student. It needs the token of an **approved instructor**. Register a throwaway account in the app, make it an admin and approved instructor from inside the API pod (the account must have registered first), and log in to get a token:
 
 ```sh
-BASE_URL="https://$API_HOST" CHECK_IN_PATH="/exams/$EXAM_ID/checkin" \
+kubectl -n exam-manager exec deploy/api -- node dist/scripts/make-admin.js loadtest-admin@example.com
+curl -fsS -X POST "https://$API_HOST/auth/login" -H 'content-type: application/json' \
+  -d '{"email":"loadtest-admin@example.com","password":"<password>"}'   # copy the token
+```
+
+The script needs at least `rate × 240` unique bodies, so 10 check-ins per second needs 2,400 students and 50 per second needs 12,000. The seed script sizes the room for the student count, up to 200 rows of 100 seats. Keep fixtures and tokens outside Git.
+
+```sh
+API_URL="https://$API_HOST" TOKEN="$TOKEN" STUDENTS=2400 node load-tests/seed.mjs "$FIXTURES"
+# prints EXAM_ID=...
+```
+
+Then run the test. Use the Docker image if k6 isn't installed locally.
+
+```sh
+BASE_URL="https://$API_HOST" CHECK_IN_PATH="/exams/$EXAM_ID/checkins" \
   TOKEN="$TOKEN" FIXTURES="$FIXTURES" CHECK_INS_PER_SECOND=10 \
   k6 run load-tests/check-in.js
 ```
 
 ```sh
 docker run --rm -v "$PWD/load-tests:/s" -v "$(dirname "$FIXTURES"):/f" \
-  -e BASE_URL="https://$API_HOST" -e CHECK_IN_PATH="/exams/$EXAM_ID/checkin" \
+  -e BASE_URL="https://$API_HOST" -e CHECK_IN_PATH="/exams/$EXAM_ID/checkins" \
   -e TOKEN="$TOKEN" -e FIXTURES="/f/$(basename "$FIXTURES")" -e CHECK_INS_PER_SECOND=10 \
   grafana/k6:latest run /s/check-in.js
 ```
@@ -253,18 +266,23 @@ The script ramps for 30 seconds, holds for three minutes, and ramps down for 30 
 
 ```sh
 kubectl -n exam-manager exec postgres-0 -- sh -c \
-  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select count(*) filter (where \"checkedIn\"), count(*) from \"SeatAssignment\""'
+  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select count(*) from \"CheckIn\""'
 ```
 
-A local Compose run with 1,200 students at 5 per second (1,064 requests) passed all thresholds with p95 latency around 16 ms and matching database counts. That run did not exercise autoscaling, multiple pods, or the load balancer. Repeat it on staging at a higher rate before drawing conclusions.
+A local Compose run with 1,000 students at 4 per second (855 requests) passed all thresholds with p95 latency around 17 ms and 855 matching `CheckIn` rows. That run did not exercise autoscaling, multiple pods, or the load balancer. Repeat it on staging at a higher rate before drawing conclusions.
 
-Repeating a check-in for the same student returns 200 and does not create a second row, but it overwrites the student's `checkedInAt`. Test this by sending the same body twice and confirming the timestamp.
+Delete the synthetic data afterwards. Removing the course cascades to its offering, members, exams, seat assignments and check-ins. The throwaway users and the room stay, so remove them too:
+
+```sh
+kubectl -n exam-manager exec postgres-0 -- sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+  "delete from \"Course\" where code like '"'"'LOAD%'"'"'; delete from \"Room\" where name like '"'"'Load test %'"'"'; delete from \"User\" where email like '"'"'loadtest-%@example.com'"'"'"'
+```
 
 ### Verify live updates between pods
 
-The proctor page joins a room by emitting `joinExam` with the exam ID, then listens for `checkin` events. The current API does not authenticate these sockets, so treat live updates as unauthenticated until that changes.
+The proctor page connects with a login token (`auth: { token }`), joins an exam with `exam:join` and `{ examId }`, then listens for `checkin:created`. Only the exam's staff can join. Use `transports: ['websocket']`, as the web client does.
 
-Choose two ready API pods with `kubectl -n exam-manager get pods -l app=api`. Port-forward directly to each pod on a different local port. Connect a Socket.IO client to pod B, emit `joinExam`, and submit a check-in through pod A. Verify the POST returns 200 and the socket on pod B receives `checkin` for that student. If it does not, check that the API log shows `REDIS_URL` is set and that the `redis` pod is ready. Capture both pod names and the matching event for the report.
+Choose two ready API pods with `kubectl -n exam-manager get pods -l app=api`. Port-forward directly to each pod on a different local port. Connect a Socket.IO client to pod B with a staff token and join the exam, then submit a check-in through pod A. Verify the POST returns 201 and the socket on pod B receives `checkin:created` for that student. If it does not, check that the API log shows `Socket.IO using Redis adapter` and that the `redis` pod is ready. Capture both pod names and the matching event for the report.
 
 ## References
 

@@ -12,8 +12,8 @@ name: Deploy
 # Needs one repository secret, DIGITALOCEAN_ACCESS_TOKEN (a DigitalOcean API
 # token with read/write access). The public addresses come from repository
 # variables, so moving to a new domain doesn't need a code change:
-#   PUBLIC_WEB_URL  e.g. https://rollcall.example.com  (default http://146.190.191.196)
-#   PUBLIC_API_URL  e.g. https://api.rollcall.example.com (default http://209.38.1.216)
+#   PUBLIC_WEB_URL  e.g. https://rollcall.example.com  (default https://uoft-rollcall.duckdns.org)
+#   PUBLIC_API_URL  e.g. https://api.rollcall.example.com (default https://uoft-rollcall-api.duckdns.org)
 # The API's own WEB_URL / CORS_ORIGIN live in the api-credentials Secret on
 # the cluster (see docs/deployment.md).
 #
@@ -35,8 +35,8 @@ env:
   # Both images go in one repository (tags api-<sha> / web-<sha>), as the
   # first manual deploys did.
   REPOSITORY: registry.digitalocean.com/exam-manager-ece1779/exam-manager-api
-  WEB_URL: ${{ vars.PUBLIC_WEB_URL || 'http://146.190.191.196' }}
-  API_URL: ${{ vars.PUBLIC_API_URL || 'http://209.38.1.216' }}
+  WEB_URL: ${{ vars.PUBLIC_WEB_URL || 'https://uoft-rollcall.duckdns.org' }}
+  API_URL: ${{ vars.PUBLIC_API_URL || 'https://uoft-rollcall-api.duckdns.org' }}
 
 jobs:
   api-tests:

@@ -38,8 +38,8 @@ Easiest is to let DigitalOcean manage DNS, next to the cluster:
 
    | Host | Points to |
    |---|---|
-   | `@` | `146.190.191.196` (web load balancer) |
-   | `api` | `209.38.1.216` (API load balancer) |
+   | `@` | `146.190.191.195` (Gateway load balancer) |
+   | `api` | `146.190.191.195` (Gateway load balancer) |
 
 DNS usually takes minutes to update, but it can take up to a day. Check it with `dig +short rollcall.tech`.
 
@@ -54,6 +54,6 @@ DNS usually takes minutes to update, but it can take up to a day. Check it with 
 
 - The Gateway gets one load balancer and routes `<domain>` to the `web` Service and `api.<domain>` to the `api` Service, including WebSocket support for Socket.IO.
 - cert-manager issues one certificate per hostname and renews it automatically.
-- The two older `LoadBalancer` Services (`api-public`, `web-public`) are no longer needed once DNS points at the Gateway. Delete them to save the cost of two load balancers.
+- The Gateway's load balancer is the only public one. The old per-service load balancers (`api-public`, `web-public`) were deleted, so the cluster pays for one instead of three. `k8s/plain/` still has their HTTP-only versions for a setup without a domain.
 
 The manifests and step-by-step commands are in `k8s/gateway/` and [Expose the app over public HTTPS](deployment.md#expose-the-app-over-public-https). For a new domain, change the hostnames in `gateway.yaml`, `routes.yaml` and `redirect.yaml`, and point the DNS records at the Gateway's IP (`kubectl -n exam-manager get gateway rollcall`).

@@ -1,5 +1,6 @@
-// k6 inputs: BASE_URL, CHECK_IN_PATH (e.g. /exams/<id>/checkin), TOKEN (a proctor or instructor),
-// and FIXTURES (a local JSON array of request bodies like {"email":"student@example.com"}).
+// k6 inputs: BASE_URL, CHECK_IN_PATH (e.g. /exams/<id>/checkins), TOKEN (a proctor or instructor),
+// and FIXTURES (a local JSON array of request bodies like {"roomId":"...","studentId":"..."},
+// which load-tests/seed.mjs generates). A new check-in returns 201.
 import http from 'k6/http';
 import { check } from 'k6';
 import { SharedArray } from 'k6/data';
@@ -12,7 +13,7 @@ if (!BASE_URL || !CHECK_IN_PATH || !TOKEN || !FIXTURES) {
 
 const requests = new SharedArray('check-in request bodies', () => JSON.parse(open(FIXTURES)));
 const rate = Number(__ENV.CHECK_INS_PER_SECOND || 10);
-const expectedStatus = Number(__ENV.EXPECTED_STATUS || 200);
+const expectedStatus = Number(__ENV.EXPECTED_STATUS || 201);
 if (!Number.isInteger(rate) || rate < 1 || requests.length < rate * 240) {
   throw new Error('Supply a positive check-in rate and at least rate × 240 unique request bodies');
 }
