@@ -3,7 +3,7 @@
  * Rosters carry names and student numbers, never seating needs.
  */
 import { test } from "@playwright/test";
-import { PASSWORD, call, expect, openAs, register, seedOffering, studentNumber, uniqueEmail } from "./helpers";
+import { PASSWORD, call, createExam, createRoom, expect, generate, join, openAs, register, seatingOf, seedOffering, seedStudents, studentNumber, uniqueEmail } from "./helpers";
 
 test("instructor pastes a roster; students are added and get invite links", async ({ page }) => {
   const { prof, offering } = await seedOffering();
@@ -78,7 +78,8 @@ test("a student on the roster signs up with that email and joins with their invi
   await page.getByRole("tab", { name: "People" }).click();
   const row = page.getByTestId("member-row").filter({ hasText: email });
   await expect(row).not.toContainText("Invited");
-  await expect(row).toContainText("Accessible");
+  await expect(page.getByLabel(`Accessible seat for ${email}`)).toBeChecked();
+  await expect(page.getByLabel(`Left-handed desk for ${email}`)).not.toBeChecked();
 });
 
 test("someone already in the offering as staff is not added as a student", async ({ page }) => {
@@ -100,6 +101,40 @@ test("seating-need columns in a roster are ignored; only the student sets those"
   await page.getByRole("tab", { name: "People" }).click();
   const row = page.getByTestId("member-row").filter({ hasText: email });
   await expect(row).toBeVisible();
-  await expect(row).not.toContainText("Accessible");
-  await expect(row).not.toContainText("Left-handed");
+  await expect(page.getByLabel(`Accessible seat for ${email}`)).not.toBeChecked();
+  await expect(page.getByLabel(`Left-handed desk for ${email}`)).not.toBeChecked();
+});
+
+test("an instructor sets a student's seating needs when the student asks, and the seating uses them", async ({ page }) => {
+  const { prof, offering } = await seedOffering();
+  const [student] = await seedStudents(prof, offering.id, 1);
+  await openAs(page, prof, `/offerings/${offering.id}`);
+  await page.getByRole("tab", { name: "People" }).click();
+  const leftHanded = page.getByLabel(`Left-handed desk for ${student.email}`);
+  await expect(leftHanded).not.toBeChecked();
+  await page.getByTestId("member-row").filter({ hasText: student.email }).getByText("Left-handed").click();
+  await expect(leftHanded).toBeChecked(); // saved (the list reloads from the API)
+  await page.reload();
+  await page.getByRole("tab", { name: "People" }).click();
+  await expect(page.getByLabel(`Left-handed desk for ${student.email}`)).toBeChecked();
+
+  // The student sees it on their own dashboard, and seating honours it.
+  await openAs(page, student, "/dashboard");
+  await expect(page.getByLabel("I'm left-handed")).toBeChecked();
+  const room = await createRoom(prof, [[{ col: 0 }, { col: 1 }, { col: 2, leftHanded: true }]]);
+  const exam = await createExam(prof, offering.id, [room.id]);
+  await generate(prof, exam.id);
+  expect((await seatingOf(prof, exam.id)).get(student.memberId)!.leftHanded).toBe(true);
+});
+
+test("proctors see students' needs but can't change them", async ({ page }) => {
+  const { prof, offering } = await seedOffering();
+  const [student] = await seedStudents(prof, offering.id, 1, [{ needsAccessible: true }]);
+  const proctor = await register();
+  await join(prof, offering.id, proctor, "PROCTOR");
+  await openAs(page, proctor, `/offerings/${offering.id}`);
+  await page.getByRole("tab", { name: "People" }).click();
+  const row = page.getByTestId("member-row").filter({ hasText: student.email });
+  await expect(row).toContainText("Accessible");
+  await expect(page.getByLabel(`Accessible seat for ${student.email}`)).toHaveCount(0);
 });

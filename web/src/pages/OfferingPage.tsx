@@ -5,7 +5,7 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  Alert, Anchor, Badge, Button, Card, Code, Group, MultiSelect, NumberInput, Select, Stack, Table, Tabs, Text, TextInput, Textarea, Title,
+  Alert, Anchor, Badge, Button, Card, Checkbox, Code, Group, MultiSelect, NumberInput, Select, Stack, Table, Tabs, Text, TextInput, Textarea, Title,
 } from '@mantine/core'
 import Layout from '../components/Layout'
 import { api, errorMessage } from '../lib/api'
@@ -167,7 +167,17 @@ function PeopleTab({ offeringId, canManage }: { offeringId: string; canManage: b
                     onChange={(v) => v && v !== m.role && run(() => api.patch(`/offerings/${offeringId}/members/${m.id}`, { role: v }))} />
                 ) : roleLabel(m.role)}
               </Table.Td>
-              <Table.Td>{[m.needsAccessible && 'Accessible', m.leftHanded && 'Left-handed'].filter(Boolean).join(', ')}</Table.Td>
+              <Table.Td>
+                {canManage ? (
+                  // Students set these themselves; instructors can too, when a student asks them to.
+                  <Stack gap={2}>
+                    <Checkbox size="xs" label="Accessible" aria-label={`Accessible seat for ${m.email}`} checked={m.needsAccessible}
+                      onChange={(e) => { const v = e.currentTarget.checked; run(() => api.patch(`/offerings/${offeringId}/members/${m.id}`, { needsAccessible: v })) }} />
+                    <Checkbox size="xs" label="Left-handed" aria-label={`Left-handed desk for ${m.email}`} checked={m.leftHanded}
+                      onChange={(e) => { const v = e.currentTarget.checked; run(() => api.patch(`/offerings/${offeringId}/members/${m.id}`, { leftHanded: v })) }} />
+                  </Stack>
+                ) : [m.needsAccessible && 'Accessible', m.leftHanded && 'Left-handed'].filter(Boolean).join(', ')}
+              </Table.Td>
               {canManage && (
                 <Table.Td>
                   <Group gap={4} wrap="nowrap">

@@ -48,7 +48,15 @@ const addMemberBody = z.object({
   ...personFields,
 });
 
-const updateMemberBody = z.object({ role: roleSchema.optional(), ...personFields });
+// Instructors can also set a person's seating needs, for when a student asks
+// them to (students normally set these themselves). Needs belong to the
+// person, so the change applies in all their offerings.
+const updateMemberBody = z.object({
+  role: roleSchema.optional(),
+  ...personFields,
+  needsAccessible: z.boolean().optional(),
+  leftHanded: z.boolean().optional(),
+});
 
 // ---- Offerings ----
 
@@ -184,11 +192,11 @@ offeringsRouter.post("/:offeringId/roster", async (req, res) => {
   });
 });
 
-/** Change a member's role or their person details. Instructors only. */
+/** Change a member's role, person details or seating needs. Instructors only. */
 offeringsRouter.patch("/:offeringId/members/:memberId", async (req, res) => {
   const { offeringId, memberId } = req.params;
   await requireOfferingRole(currentUser(req).id, offeringId, INSTRUCTOR_ONLY);
-  const { role, ...person } = updateMemberBody.parse(req.body);
+  const { role, needsAccessible, leftHanded, ...person } = updateMemberBody.parse(req.body);
   const member = await prisma.offeringMember.findFirst({ where: { id: memberId, offeringId }, include: { user: true } });
   if (!member) throw notFound("Member");
   // Demoting an instructor is fine unless they're the only one left.
@@ -197,6 +205,9 @@ offeringsRouter.patch("/:offeringId/members/:memberId", async (req, res) => {
   const updated = await prisma.$transaction(async (tx) => {
     const result = await upsertPerson(tx, { ...person, email: member.user.email });
     if ("error" in result) throw badRequest(result.error);
+    if (needsAccessible !== undefined || leftHanded !== undefined) {
+      await tx.user.update({ where: { id: member.userId }, data: { needsAccessible, leftHanded } });
+    }
     return tx.offeringMember.update({ where: { id: memberId }, data: { role }, include: { user: true } });
   });
   res.json({ member: memberDto(updated, { includeInvite: true }) });

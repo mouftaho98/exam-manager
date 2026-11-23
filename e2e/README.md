@@ -64,6 +64,8 @@ Before running, install `api/` and `web/` (`npm ci` in each, plus `npx prisma ge
 - [x] A rostered student signs up with that email, joins, and their own needs show to the instructor
 - [x] Staff already in the offering aren't added as students
 - [x] Seating-need columns in a roster are ignored
+- [x] An instructor sets a student's needs when asked (People tab); the student sees it and seating uses it
+- [x] Proctors see needs but can't change them
 
 ### Rooms (`rooms.spec.ts`)
 - [x] Draw a room on the grid: drag to make an aisle and a walkway, click to shorten a row, paint accessible and broken seats; labels skip aisles and walkways
