@@ -212,11 +212,30 @@ describe("accounts, courses, offerings and invites", () => {
     const later = await api().patch("/me").set(auth(bo.body.token)).send({ leftHanded: true });
     expect(later.body.user).toMatchObject({ needsAccessible: true, leftHanded: true });
 
-    // Instructors can't set these: the fields are ignored on invites and rosters.
+    // Invites and rosters never set these: the fields are ignored there.
     await api().post(`/offerings/${offeringId}/members`).set(auth(instructor.token)).send({ email: "zz@mail.com", role: "STUDENT", needsAccessible: true });
     await upload(offeringId, "email,accessible\nyy@mail.com,yes\n");
     const others = await prisma.user.findMany({ where: { email: { in: ["zz@mail.com", "yy@mail.com"] } } });
     expect(others.map((u) => u.needsAccessible)).toEqual([false, false]);
+  });
+
+  it("lets an instructor set a student's needs when the student asks", async () => {
+    const members = await api().get(`/offerings/${offeringId}/members?role=STUDENT`).set(auth(instructor.token));
+    const cy = members.body.members.find((m: { email: string }) => m.email === "cy@mail.com");
+    expect(cy).toMatchObject({ needsAccessible: false, leftHanded: false });
+
+    const res = await api().patch(`/offerings/${offeringId}/members/${cy.id}`).set(auth(instructor.token)).send({ leftHanded: true, needsAccessible: true });
+    expect(res.status).toBe(200);
+    expect(res.body.member).toMatchObject({ needsAccessible: true, leftHanded: true, role: "STUDENT" });
+
+    // Turning one off leaves the other alone.
+    const off = await api().patch(`/offerings/${offeringId}/members/${cy.id}`).set(auth(instructor.token)).send({ needsAccessible: false });
+    expect(off.body.member).toMatchObject({ needsAccessible: false, leftHanded: true });
+
+    // Proctors and students can't change someone else's needs.
+    expect((await api().patch(`/offerings/${offeringId}/members/${cy.id}`).set(auth(proctor.token)).send({ leftHanded: false })).status).toBe(403);
+    expect((await api().patch(`/offerings/${offeringId}/members/${cy.id}`).set(auth(student.token)).send({ leftHanded: false })).status).toBe(403);
+    expect((await prisma.user.findUniqueOrThrow({ where: { email: "cy@mail.com" } })).leftHanded).toBe(true);
   });
 
   it("shows the instructor who has joined and who is still invited", async () => {

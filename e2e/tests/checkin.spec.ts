@@ -171,3 +171,13 @@ test("staff of another course can't check students into this exam", async ({ pag
   await openAs(page, outsider, `/exams/${exam.id}`);
   await expect(page.getByRole("alert")).toContainText("not found");
 });
+
+test("a refresh keeps the proctor's room and the open seating map", async ({ page }) => {
+  const { proctor, exam, rooms } = await seedExam({ students: 2, rooms: [[1], [1]] });
+  await openExamDay(page, proctor, exam.id);
+  await choose(page, "I'm checking students into", rooms[1].name);
+  await page.getByRole("tab", { name: rooms[1].name }).click();
+  await page.reload();
+  await expect(page.getByRole("textbox", { name: "I'm checking students into" })).toHaveValue(rooms[1].name);
+  await expect(page.getByRole("tab", { name: rooms[1].name })).toHaveAttribute("aria-selected", "true");
+});

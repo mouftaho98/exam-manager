@@ -4,10 +4,12 @@ import { Alert, Button, Card, Group, SegmentedControl, Stack, Text } from '@mant
 import Layout from '../components/Layout'
 import { api, errorMessage } from '../lib/api'
 import { useLoad } from '../lib/hooks'
+import { useUrlState } from '../lib/useUrlState'
 import type { User } from '../lib/types'
 
 export default function AdminPage() {
-  const [status, setStatus] = useState('PENDING')
+  // Kept in the URL (?status=APPROVED) so a refresh keeps the filter.
+  const [status, setStatus] = useUrlState('status', 'PENDING', ['PENDING', 'APPROVED', 'REJECTED'] as const)
   const list = useLoad(() => api.get<{ users: User[] }>(`/admin/instructor-requests?status=${status}`), [status])
   const [error, setError] = useState('')
 
@@ -22,7 +24,7 @@ export default function AdminPage() {
   return (
     <Layout title="Instructor requests">
       <Stack gap="md">
-        <SegmentedControl value={status} onChange={setStatus} data={[
+        <SegmentedControl value={status} onChange={(v) => setStatus(v as typeof status)} data={[
           { label: 'Pending', value: 'PENDING' }, { label: 'Approved', value: 'APPROVED' }, { label: 'Rejected', value: 'REJECTED' },
         ]} />
         {(error || list.error) && <Alert color="red">{error || list.error}</Alert>}
