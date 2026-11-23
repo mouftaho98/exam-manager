@@ -1,31 +1,38 @@
 /**
- * A room's seat map. Pick a marking, then click seats to turn it on or off.
- * The layout itself can be changed until students are seated in the room.
+ * A room's seat map. Seat markings can be changed any time (click a seat).
+ * The whole layout can be redrawn until students are seated in the room.
  */
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Alert, Badge, Button, Card, Group, SegmentedControl, Stack, Text, TextInput, Title } from '@mantine/core'
+import { Alert, Button, Card, Group, SegmentedControl, Stack, Text, Title } from '@mantine/core'
 import Layout from '../components/Layout'
+import RoomBuilder, { gridFromRoom, gridToRows, usableCount, type Grid } from '../components/RoomBuilder'
 import SeatMap from '../components/SeatMap'
 import { api, errorMessage } from '../lib/api'
 import { useLoad } from '../lib/hooks'
+import { useElementSize } from '../lib/useCellSize'
 import type { Room, Seat } from '../lib/types'
-import { parseRowCounts } from './RoomsPage'
 
 type Marking = 'accessible' | 'leftHanded' | 'broken'
+
+const MARKINGS: { value: Marking; label: string; bg: string }[] = [
+  { value: 'accessible', label: 'Accessible', bg: '#d0ebff' },
+  { value: 'leftHanded', label: 'Left-handed', bg: '#e5dbff' },
+  { value: 'broken', label: 'Broken', bg: '#ffe3e3' },
+]
 
 export default function RoomPage() {
   const { roomId = '' } = useParams()
   const room = useLoad(() => api.get<{ room: Room }>(`/rooms/${roomId}`), [roomId])
   const [marking, setMarking] = useState<Marking>('accessible')
+  const [draft, setDraft] = useState<Grid | null>(null) // set while redrawing the layout
   const [error, setError] = useState('')
   const [warning, setWarning] = useState('')
-  const [rowsText, setRowsText] = useState('')
   const r = room.data?.room
-
-  useEffect(() => {
-    if (r) setRowsText(r.rows.map((row) => row.seats.length).join(', '))
-  }, [r?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  // The map fills the box beside the sidebar (as tall as the sidebar) unless they're stacked.
+  const sideBox = useElementSize()
+  const mapBox = useElementSize()
+  const stacked = mapBox.top > sideBox.top + 20
 
   const toggle = async (seat: Seat) => {
     setError('')
@@ -40,47 +47,69 @@ export default function RoomPage() {
   }
 
   const saveLayout = async () => {
+    if (!r || !draft) return
     setError('')
-    const counts = parseRowCounts(rowsText)
-    if (!r || !counts) { setError('Seats per row should be numbers separated by commas'); return }
+    if (usableCount(draft) === 0) { setError('Add at least one seat'); return }
     try {
-      const res = await api.put<{ room: Room }>(`/rooms/${roomId}`, { name: r.name, building: r.building ?? undefined, rows: counts.map((seats) => ({ seats })) })
+      const res = await api.put<{ room: Room }>(`/rooms/${roomId}`, { name: r.name, building: r.building ?? undefined, rows: gridToRows(draft) })
       room.setData(res)
+      setDraft(null)
     } catch (e) { setError(errorMessage(e)) }
   }
 
   return (
-    <Layout title={r ? `${r.name}${r.building ? ` · ${r.building}` : ''}` : 'Room'}>
+    <Layout title={r ? `${r.name}${r.building ? ` · ${r.building}` : ''}` : 'Room'} size="xl">
       {room.error && <Alert color="red">{room.error}</Alert>}
       {r && (
         <Stack gap="md">
           <Text c="dimmed">{r.capacity} usable seats</Text>
           {error && <Alert color="red">{error}</Alert>}
           {warning && <Alert color="yellow">{warning}</Alert>}
-          <Card withBorder padding="md">
-            <Group justify="space-between" mb="sm" wrap="wrap">
-              <Title order={5}>Seat markings</Title>
-              <SegmentedControl size="xs" value={marking} onChange={(v) => setMarking(v as Marking)} data={[
-                { label: 'Accessible', value: 'accessible' }, { label: 'Left-handed', value: 'leftHanded' }, { label: 'Broken', value: 'broken' },
-              ]} />
-            </Group>
-            <Text size="sm" c="dimmed" mb="sm">Click a seat to turn the selected marking on or off.</Text>
-            <SeatMap rows={r.rows} onSeatClick={toggle} />
-            <Group gap="xs" mt="sm">
-              <Badge color="gray" variant="outline">Normal</Badge>
-              <Badge color="blue" variant="light">Accessible</Badge>
-              <Badge color="violet" variant="light">Left-handed</Badge>
-              <Badge color="red" variant="light">Broken (never assigned)</Badge>
-            </Group>
-          </Card>
-          <Card withBorder padding="md">
-            <Title order={5} mb="sm">Layout</Title>
-            <Group align="flex-end">
-              <TextInput label="Seats per row" value={rowsText} onChange={(e) => setRowsText(e.target.value)} style={{ flexGrow: 1 }} />
-              <Button variant="light" onClick={saveLayout}>Save layout</Button>
-            </Group>
-            <Text size="xs" c="dimmed" mt="xs">Saving a new layout clears seat markings. It's blocked once students are seated here.</Text>
-          </Card>
+
+          {draft ? (
+            <Card withBorder padding="md">
+              <RoomBuilder
+                grid={draft}
+                onChange={setDraft}
+                side={<Title order={5}>Redraw the layout</Title>}
+                actions={
+                  <>
+                    <Group gap="xs" grow>
+                      <Button onClick={saveLayout}>Save layout</Button>
+                      <Button variant="default" onClick={() => { setDraft(null); setError('') }}>Cancel</Button>
+                    </Group>
+                    <Text size="xs" c="dimmed">Not possible once students are seated in this room. Change seat markings instead.</Text>
+                  </>
+                }
+              />
+            </Card>
+          ) : (
+            <Card withBorder padding="md">
+              {/* Controls on the left, the map on the right (stacked on phones). */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-start' }}>
+                <Stack ref={sideBox.ref} gap="sm" style={{ flex: '0 0 250px', minWidth: 0 }}>
+                  <Title order={5}>Seat markings</Title>
+                  <SegmentedControl
+                    orientation="vertical" fullWidth value={marking} onChange={(v) => setMarking(v as Marking)} aria-label="Seat marking"
+                    data={MARKINGS.map((m) => ({
+                      value: m.value,
+                      label: (
+                        <Group gap={8} wrap="nowrap">
+                          <span style={{ width: 16, height: 14, borderRadius: 3, background: m.bg, flexShrink: 0 }} />
+                          <span>{m.label}</span>
+                        </Group>
+                      ),
+                    }))}
+                  />
+                  <Text size="xs" c="dimmed">Click a seat to turn the selected marking on or off. Broken seats are never assigned.</Text>
+                  <Button variant="light" onClick={() => setDraft(gridFromRoom(r))}>Edit layout</Button>
+                </Stack>
+                <div ref={mapBox.ref} style={{ flex: '1 1 360px', minWidth: 0 }}>
+                  <SeatMap rows={r.rows} onSeatClick={toggle} fillHeight={stacked ? undefined : Math.max(sideBox.height, 360)} />
+                </div>
+              </div>
+            </Card>
+          )}
         </Stack>
       )}
     </Layout>

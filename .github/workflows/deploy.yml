@@ -91,7 +91,8 @@ jobs:
           done < <(doctl registry repository list-tags "$REPO_NAME" -o json | jq -r '.[] | "\(.tag) \(.manifest_digest)"')
           wait_for_gc() {
             for _ in $(seq 1 60); do
-              status=$(doctl registry garbage-collection get-active "$REGISTRY_NAME" --format Status --no-header 2>/dev/null || true)
+              # JSON, because get-active ignores --format; with none running it returns an error object (no status).
+              status=$(doctl registry garbage-collection get-active "$REGISTRY_NAME" -o json 2>/dev/null | jq -r '(if type == "array" then .[0] else . end) | .status // empty' || true)
               case "$status" in
                 ""|succeeded|failed|cancelled) return 0 ;;
                 *) echo "garbage collection: $status"; sleep 10 ;;
