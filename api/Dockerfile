@@ -32,4 +32,4 @@ USER node
 EXPOSE 3000
 # Apply pending migrations, then start. Prisma takes a database lock while
 # migrating, so several pods starting at once is safe.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && exec node dist/index.js"]

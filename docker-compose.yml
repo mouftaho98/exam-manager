@@ -1,6 +1,7 @@
-# Local development: API + PostgreSQL + Redis
+# Local development: web + API + PostgreSQL + Redis
 #   cp .env.example .env
 #   docker compose up --build
+# Web on http://localhost:5173
 # API on http://localhost:3000 (liveness: /health, readiness: /ready)
 services:
   # The API, built from api/Dockerfile. Waits for Postgres to be healthy first.
@@ -25,6 +26,19 @@ services:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       retries: 10
+
+  # The React app, built to static files and served by nginx. VITE_API_URL is
+  # the address the browser uses to reach the API, and it is baked in at build time.
+  # Port 5173 matches the default WEB_URL used for invite links.
+  web:
+    build:
+      context: ./web
+      args:
+        VITE_API_URL: http://localhost:3000
+    ports:
+      - "5173:8080"
+    depends_on:
+      - api
 
   # Shares live-update events between API replicas.
   redis:

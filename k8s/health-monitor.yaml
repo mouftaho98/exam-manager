@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: api-health
+spec:
+  schedule: "*/1 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 20
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: check
+              image: node:22-bookworm-slim
+              command:
+                - node
+                - -e
+                - |
+                  fetch("http://api:3000/ready", { signal: AbortSignal.timeout(5000) })
+                    .then(response => {
+                      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                      console.log("API is ready");
+                    })
+                    .catch(error => {
+                      console.error(error);
+                      process.exitCode = 1;
+                    });
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi

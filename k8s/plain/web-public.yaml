@@ -1,0 +1,19 @@
+# Staging without a domain: the web app on plain HTTP at the load balancer's IP.
+# Use the web-public Service in ../web.yaml instead once you have a hostname and certificate.
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-public
+  annotations:
+    service.beta.kubernetes.io/do-loadbalancer-type: "REGIONAL"
+    service.beta.kubernetes.io/do-loadbalancer-protocol: "http"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-protocol: "http"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-path: "/"
+spec:
+  type: LoadBalancer
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

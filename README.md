@@ -51,9 +51,11 @@ RollCall runs on DigitalOcean Kubernetes (DOKS):
 | API | http://209.38.1.216 |
 | API liveness / readiness | http://209.38.1.216/health, http://209.38.1.216/ready |
 
-The web app and the API each sit behind their own DigitalOcean load balancer. Both are plain HTTP for now. Phone cameras only work over HTTPS, so scanning student ID cards with a phone won't work on the live site until HTTPS is set up; typing the student number works everywhere. Kubernetes manifests and the runbook are in `k8s/` and `docs/deployment.md` (PR #6).
+The web app and the API each sit behind their own DigitalOcean load balancer. Both are plain HTTP for now. Phone cameras only work over HTTPS, so scanning student ID cards with a phone won't work on the live site until HTTPS is set up; typing the student number works everywhere. Kubernetes manifests are in `k8s/`.
 
 **Domain:** we're getting a free `.tech` domain through the GitHub Student Developer Pack. The steps are in [docs/domain.md](docs/domain.md).
+
+See the [deployment runbook](docs/deployment.md) for local setup, DigitalOcean Kubernetes deployment, monitoring, and load testing.
 
 ## AI Assistance & Verification (Summary)
 See [ai-session.md](ai-session.md).
