@@ -3,12 +3,11 @@ name: UI tests
 # Separate from web.yml (PR #6), which builds the web Docker image.
 # Builds the frontend and runs the Playwright UI tests against a real API and
 # Postgres on every PR that touches the web app, the API or the tests.
+# On main, deploy.yml calls this workflow before deploying.
 on:
   pull_request:
     paths: ["web/**", "api/**", "e2e/**", ".github/workflows/e2e.yml"]
-  push:
-    branches: [main]
-    paths: ["web/**", "api/**", "e2e/**", ".github/workflows/e2e.yml"]
+  workflow_call:
   # Run by hand from the Actions tab; "live" also checks the deployed site.
   workflow_dispatch:
     inputs:

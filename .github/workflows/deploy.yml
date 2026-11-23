@@ -1,0 +1,149 @@
+name: Deploy
+
+# Continuous deployment to DigitalOcean Kubernetes.
+#
+# On every push to main (and when run by hand from the Actions tab):
+#   1. run the API tests and the UI tests (the same workflows PRs run);
+#   2. build the API and web images and push them to the DigitalOcean registry;
+#   3. point the api and web Deployments at the new images and wait for them;
+#   4. check /ready and run the read-only smoke tests against the live site,
+#      rolling both Deployments back if anything fails.
+#
+# Needs one repository secret, DIGITALOCEAN_ACCESS_TOKEN (a DigitalOcean API
+# token with read/write access). The public addresses come from repository
+# variables, so moving to a new domain doesn't need a code change:
+#   PUBLIC_WEB_URL  e.g. https://rollcall.example.com  (default http://146.190.191.196)
+#   PUBLIC_API_URL  e.g. https://api.rollcall.example.com (default http://209.38.1.216)
+# The API's own WEB_URL / CORS_ORIGIN live in the api-credentials Secret on
+# the cluster (see docs/deployment.md).
+#
+# Database migrations run when the new API pods start (prisma migrate deploy).
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**/*.md", "docs/**", "ECE1779H-Project-Proposal.md"]
+  workflow_dispatch:
+
+# One deploy at a time; a newer push waits instead of cancelling a rollout halfway.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  CLUSTER: exam-manager
+  NAMESPACE: exam-manager
+  # Both images go in one repository (tags api-<sha> / web-<sha>), as the
+  # first manual deploys did.
+  REPOSITORY: registry.digitalocean.com/exam-manager-ece1779/exam-manager-api
+  WEB_URL: ${{ vars.PUBLIC_WEB_URL || 'http://146.190.191.196' }}
+  API_URL: ${{ vars.PUBLIC_API_URL || 'http://209.38.1.216' }}
+
+jobs:
+  api-tests:
+    name: API tests
+    uses: ./.github/workflows/api.yml
+
+  ui-tests:
+    name: UI tests
+    uses: ./.github/workflows/e2e.yml
+
+  deploy:
+    name: Build, push and roll out
+    needs: [api-tests, ui-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Short commit id for image tags
+        id: meta
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Log in to the registry and the cluster
+        run: |
+          doctl registry login --expiry-seconds 3600
+          doctl kubernetes cluster kubeconfig save "$CLUSTER" --expiry-seconds 3600
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push the API image
+        id: api
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          platforms: linux/amd64
+          provenance: false
+          push: true
+          tags: ${{ env.REPOSITORY }}:api-${{ steps.meta.outputs.sha }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+
+      - name: Build and push the web image
+        id: web
+        uses: docker/build-push-action@v6
+        with:
+          context: ./web
+          platforms: linux/amd64
+          provenance: false
+          push: true
+          # Vite bakes the API address into the bundle at build time.
+          build-args: VITE_API_URL=${{ env.API_URL }}
+          tags: ${{ env.REPOSITORY }}:web-${{ steps.meta.outputs.sha }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+      - name: Roll out the new images
+        id: rollout
+        run: |
+          # Deploy by digest so the cluster runs exactly what was just built.
+          kubectl -n "$NAMESPACE" set image deployment/api api="$REPOSITORY@${{ steps.api.outputs.digest }}"
+          kubectl -n "$NAMESPACE" set image deployment/web web="$REPOSITORY@${{ steps.web.outputs.digest }}"
+          kubectl -n "$NAMESPACE" annotate deployment/api deployment/web --overwrite \
+            kubernetes.io/change-cause="deploy ${{ steps.meta.outputs.sha }} (run ${{ github.run_id }})"
+          kubectl -n "$NAMESPACE" rollout status deployment/api --timeout=5m
+          kubectl -n "$NAMESPACE" rollout status deployment/web --timeout=5m
+
+      - name: Check the API is ready
+        id: ready
+        run: |
+          for _ in $(seq 1 30); do
+            if curl -sf "$API_URL/ready"; then echo; exit 0; fi
+            sleep 2
+          done
+          echo "API never became ready"; exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Smoke test the live site (read-only)
+        id: smoke
+        working-directory: e2e
+        env:
+          LIVE_URL: ${{ env.WEB_URL }}
+          LIVE_API_URL: ${{ env.API_URL }}
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run test:live
+
+      - name: Roll back if the new version is broken
+        if: failure() && steps.rollout.outcome != 'skipped'
+        run: |
+          kubectl -n "$NAMESPACE" rollout undo deployment/api
+          kubectl -n "$NAMESPACE" rollout undo deployment/web
+          kubectl -n "$NAMESPACE" rollout status deployment/api --timeout=5m
+          kubectl -n "$NAMESPACE" rollout status deployment/web --timeout=5m
+
+      - name: Show what's running
+        if: always() && steps.rollout.outcome != 'skipped'
+        run: |
+          kubectl -n "$NAMESPACE" get pods -o wide
+          kubectl -n "$NAMESPACE" rollout history deployment/api | tail -5
+          kubectl -n "$NAMESPACE" logs deployment/api --tail=30 || true

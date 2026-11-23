@@ -167,6 +167,25 @@ awk '/^---$/{exit} {print}' k8s/web.yaml | sed "s|WEB_IMAGE|$WEB_IMAGE|" | kubec
 
 The web app is then at `http://$WEB_IP`. The starter registry plan allows one repository, so the web image can't have its own repository. Push it as a tag of `exam-manager-api` (for example `web-<commit>`), or upgrade the registry to the Basic plan. Both load balancers are billed while they exist, so delete them with `kubectl -n exam-manager delete svc api-public web-public` when the demo is over.
 
+## Continuous deployment
+
+After the first manual deploy, `.github/workflows/deploy.yml` deploys every push to `main`:
+1. It runs the API and UI tests.
+2. It builds both images and pushes them to `exam-manager-api` as `api-<sha>` and `web-<sha>`.
+3. It points the `api` and `web` Deployments at the new images by digest, then waits for the rollout.
+4. It checks `/ready` and runs the read-only smoke tests against the live site. If any of this fails, it rolls both Deployments back.
+
+You can also start it by hand: **Actions → Deploy → Run workflow**.
+
+Setup, once:
+
+- **Repository secret** `DIGITALOCEAN_ACCESS_TOKEN`: a DigitalOcean API token with read and write access, just for GitHub, so it can be revoked on its own.
+- **Repository variables** `PUBLIC_WEB_URL` and `PUBLIC_API_URL`, optional. They default to the two load balancer IPs. Set them when the site moves to a domain; the next deploy rebuilds the web app against the new API address. Also update `WEB_URL` and `CORS_ORIGIN` in the `api-credentials` Secret to match.
+
+Migrations run when the new API pods start. A rollback brings back the old image but doesn't undo migrations, so keep them backwards compatible: add columns and tables, and don't rename or drop in the same change.
+
+Each API image is about 175 MB. Delete old tags now and then (`doctl registry repository list-tags exam-manager-api`, then `doctl registry repository delete-tag exam-manager-api <tag>`), and run garbage collection so the registry doesn't fill up.
+
 ## 4. Enable autoscaling and monitoring
 
 The staging cluster already provides the metrics API. On a fresh cluster, install Metrics Server v0.9.1 if it is absent and wait for it to become available.
