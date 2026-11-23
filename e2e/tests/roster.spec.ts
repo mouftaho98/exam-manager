@@ -112,8 +112,11 @@ test("an instructor sets a student's seating needs when the student asks, and th
   await page.getByRole("tab", { name: "People" }).click();
   const leftHanded = page.getByLabel(`Left-handed desk for ${student.email}`);
   await expect(leftHanded).not.toBeChecked();
-  await page.getByTestId("member-row").filter({ hasText: student.email }).getByText("Left-handed").click();
-  await expect(leftHanded).toBeChecked(); // saved (the list reloads from the API)
+  // The box ticks straight away and saves in the background; wait for the save.
+  const saved = page.waitForResponse((r) => r.request().method() === "PATCH" && r.url().includes(`/members/${student.memberId}`));
+  await leftHanded.click();
+  await expect(leftHanded).toBeChecked();
+  expect((await saved).ok()).toBe(true);
   await page.reload();
   await page.getByRole("tab", { name: "People" }).click();
   await expect(page.getByLabel(`Left-handed desk for ${student.email}`)).toBeChecked();
@@ -134,7 +137,8 @@ test("proctors see students' needs but can't change them", async ({ page }) => {
   await join(prof, offering.id, proctor, "PROCTOR");
   await openAs(page, proctor, `/offerings/${offering.id}`);
   await page.getByRole("tab", { name: "People" }).click();
-  const row = page.getByTestId("member-row").filter({ hasText: student.email });
-  await expect(row).toContainText("Accessible");
-  await expect(page.getByLabel(`Accessible seat for ${student.email}`)).toHaveCount(0);
+  // A check mark in the Accessible column, but no checkboxes to change it.
+  await expect(page.getByRole("img", { name: `Accessible seat for ${student.email}` })).toBeVisible();
+  await expect(page.getByRole("img", { name: `Left-handed desk for ${student.email}` })).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: `Accessible seat for ${student.email}` })).toHaveCount(0);
 });

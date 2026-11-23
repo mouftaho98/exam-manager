@@ -16,6 +16,7 @@ import { ApiError, api, errorMessage } from '../lib/api'
 import { formatWhen } from '../lib/format'
 import { useLoad } from '../lib/hooks'
 import { useExamEvents } from '../lib/socket'
+import { useUrlState } from '../lib/useUrlState'
 import type { Attendance, Exam, Role, RoomSummary, Seat, SeatRow, Seating, SeatingSeat, StudentSummary } from '../lib/types'
 
 type StudentView = {
@@ -153,7 +154,11 @@ function SetupCard({ exam, hasCheckins, onChange }: { exam: Exam; hasCheckins: b
 
 /** Door check-in: scan or type the student number, or search by name. */
 function CheckinCard({ exam, seating }: { exam: Exam; seating: Seating | null }) {
-  const [roomId, setRoomId] = useState<string | null>(exam.rooms.length === 1 ? exam.rooms[0].id : null)
+  // The proctor's room is kept in the URL (?checkin=<roomId>), so refreshing
+  // mid-exam doesn't make them pick it again. One-room exams pick it for them.
+  const roomIds = exam.rooms.map((r) => r.id)
+  const [urlRoom, setRoomId] = useUrlState('checkin', exam.rooms.length === 1 ? roomIds[0] : '', roomIds)
+  const roomId = urlRoom || null
   const [number, setNumber] = useState('')
   const [studentId, setStudentId] = useState<string | null>(null)
   const [scanning, setScanning] = useState(false)
@@ -190,7 +195,7 @@ function CheckinCard({ exam, seating }: { exam: Exam; seating: Seating | null })
     <Card withBorder padding="md">
       <Title order={5} mb="sm">Check in</Title>
       <Stack gap="sm">
-        <Select label="I'm checking students into" placeholder="Pick your room" value={roomId} onChange={setRoomId}
+        <Select label="I'm checking students into" placeholder="Pick your room" value={roomId} onChange={(v) => setRoomId(v ?? '')}
           data={exam.rooms.map((r) => ({ value: r.id, label: r.name }))} allowDeselect={false} />
         <Group align="flex-end" wrap="wrap">
           <TextInput
@@ -280,6 +285,8 @@ function AttendanceCard({ attendance }: { attendance: Attendance | null }) {
  */
 function SeatingCard({ exam, seating, onChange }: { exam: Exam; seating: Seating; onChange: () => void }) {
   const [selected, setSelected] = useState<(StudentSummary & { checkedInAt?: string | null; seatLabel?: string }) | null>(null)
+  // Which room's map is open, kept in the URL (?map=<roomId>).
+  const [mapRoom, setMapRoom] = useUrlState('map', seating.rooms[0].id, seating.rooms.map((r) => r.id))
   const [error, setError] = useState('')
 
   const move = async (seat: SeatingSeat) => {
@@ -328,7 +335,7 @@ function SeatingCard({ exam, seating, onChange }: { exam: Exam; seating: Seating
           {selected.checkedInAt && <Button size="xs" variant="light" color="red" mt="xs" onClick={undoCheckin}>Undo check-in</Button>}
         </Alert>
       )}
-      <Tabs defaultValue={seating.rooms[0].id}>
+      <Tabs value={mapRoom} onChange={(v) => v && setMapRoom(v)}>
         <Tabs.List>
           {seating.rooms.map((r) => <Tabs.Tab key={r.id} value={r.id}>{r.name}</Tabs.Tab>)}
         </Tabs.List>

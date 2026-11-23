@@ -83,7 +83,7 @@ test("instructor makes a new invite link, and the old one stops working", async 
   await page.getByLabel("Email").fill(email);
   await page.getByRole("button", { name: "Invite" }).click();
   const first = await page.getByTestId("invite-link").innerText();
-  await page.getByTestId("member-row").filter({ hasText: email }).getByRole("button", { name: "New link" }).click();
+  await page.getByTestId("member-row").filter({ hasText: email }).getByRole("button", { name: /^New invite link for/ }).click();
   await expect(page.getByTestId("invite-link")).not.toHaveText(first);
   await page.goto(new URL(first).pathname);
   await expect(page.getByRole("alert")).toContainText("not valid");
@@ -139,4 +139,30 @@ test("students only see the exams tab", async ({ page }) => {
   await expect(page.getByText("You're a student")).toBeVisible();
   await expect(page.getByRole("tab", { name: "Exams" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "People" })).toHaveCount(0);
+});
+
+test("the open tab survives a refresh and can be linked to", async ({ page }) => {
+  const { prof, offering } = await seedOffering();
+  await openAs(page, prof, `/offerings/${offering.id}`);
+  await page.getByRole("tab", { name: "People" }).click();
+  await expect(page).toHaveURL(/\?tab=people$/);
+  await page.reload();
+  await expect(page.getByRole("tab", { name: "People" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: "Invite" })).toBeVisible();
+
+  await page.getByRole("tab", { name: "Roster upload" }).click();
+  await page.reload();
+  await expect(page.getByRole("tab", { name: "Roster upload" })).toHaveAttribute("aria-selected", "true");
+
+  // Back to the first tab drops the parameter.
+  await page.getByRole("tab", { name: "Exams" }).click();
+  await expect(page).not.toHaveURL(/tab=/);
+});
+
+test("a tab someone can't see falls back to Exams", async ({ page }) => {
+  const { prof, offering } = await seedOffering();
+  const student = await register();
+  await join(prof, offering.id, student, "STUDENT");
+  await openAs(page, student, `/offerings/${offering.id}?tab=people`);
+  await expect(page.getByRole("tab", { name: "Exams" })).toHaveAttribute("aria-selected", "true");
 });

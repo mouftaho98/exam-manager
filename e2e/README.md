@@ -31,6 +31,7 @@ Before running, install `api/` and `web/` (`npm ci` in each, plus `npx prisma ge
 - [x] A rejected instructor can ask again
 - [x] Instructor access can be requested later from the dashboard
 - [x] Non-admins can't see requests
+- [x] The admin filter survives a refresh (`?status=`)
 - [x] Users who aren't approved can't create courses
 
 ### Seating needs (`profile.spec.ts`)
@@ -56,6 +57,7 @@ Before running, install `api/` and `web/` (`npm ci` in each, plus `npx prisma ge
 - [x] An offering always keeps one instructor
 - [x] Co-instructors can manage the offering
 - [x] Proctors see people but can't invite or upload rosters; students only see exams
+- [x] The open tab survives a refresh (`?tab=`); a tab someone can't see falls back to Exams
 
 ### Roster upload (`roster.spec.ts`)
 - [x] Paste a roster: students are added as invited students with invite links
@@ -111,6 +113,7 @@ Before running, install `api/` and `web/` (`npm ci` in each, plus `npx prisma ge
 - [x] The student sees they're checked in
 - [x] Seating can't be regenerated after check-in starts
 - [x] Staff of another course can't open the exam
+- [x] A refresh keeps the proctor's room (`?checkin=`) and the open seating map (`?map=`)
 
 ### Live site (`live/smoke.spec.ts`, read-only)
 - [x] API `/health` and `/ready`

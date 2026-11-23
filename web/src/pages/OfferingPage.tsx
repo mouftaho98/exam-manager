@@ -2,15 +2,17 @@
  * One offering (a course in a term). Everyone sees its exams. Staff see who's
  * in it; instructors also invite people, upload the roster and create exams.
  */
-import { useState } from 'react'
+import { memo, useCallback, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  Alert, Anchor, Badge, Button, Card, Checkbox, Code, Group, MultiSelect, NumberInput, Select, Stack, Table, Tabs, Text, TextInput, Textarea, Title,
+  ActionIcon, Alert, Anchor, Badge, Button, Card, Center, Checkbox, Code, Group, MultiSelect, NumberInput, Select, Stack, Table, Tabs, Text, TextInput, Textarea, Title, Tooltip,
 } from '@mantine/core'
+import { CheckIcon, LinkIcon, TrashIcon } from '../components/icons'
 import Layout from '../components/Layout'
 import { api, errorMessage } from '../lib/api'
 import { formatWhen, roleLabel, toLocalInput } from '../lib/format'
 import { useLoad } from '../lib/hooks'
+import { useUrlState } from '../lib/useUrlState'
 import type { Exam, Member, Offering, Role, RoomSummary } from '../lib/types'
 
 const ROLE_OPTIONS = [
@@ -19,14 +21,20 @@ const ROLE_OPTIONS = [
   { value: 'INSTRUCTOR', label: 'Instructor' },
 ]
 
+type OfferingTab = 'exams' | 'people' | 'roster'
+
 export default function OfferingPage() {
   const { offeringId = '' } = useParams()
   const info = useLoad(() => api.get<{ offering: Offering; myRole: Role }>(`/offerings/${offeringId}`), [offeringId])
   const role = info.data?.myRole
   const o = info.data?.offering
+  // The open tab lives in the URL (?tab=people), so a refresh stays on it.
+  // Tabs someone can't see (e.g. People for a student) fall back to Exams.
+  const tabs: OfferingTab[] = role === 'INSTRUCTOR' ? ['exams', 'people', 'roster'] : role === 'PROCTOR' ? ['exams', 'people'] : ['exams']
+  const [tab, setTab] = useUrlState<OfferingTab>('tab', 'exams', tabs)
 
   return (
-    <Layout title={o ? `${o.course.code} — ${o.term}` : 'Course'}>
+    <Layout title={o ? `${o.course.code} — ${o.term}` : 'Course'} size="xl">
       {info.error && <Alert color="red">{info.error}</Alert>}
       {o && role && (
         <Stack gap="md">
@@ -34,7 +42,7 @@ export default function OfferingPage() {
             <Text c="dimmed">{o.course.name}</Text>
             <Badge variant="light">You're {role === 'INSTRUCTOR' ? 'an instructor' : `a ${roleLabel(role).toLowerCase()}`}</Badge>
           </Group>
-          <Tabs defaultValue="exams" keepMounted={false}>
+          <Tabs value={tab} onChange={(v) => v && setTab(v as OfferingTab)} keepMounted={false}>
             <Tabs.List>
               <Tabs.Tab value="exams">Exams</Tabs.Tab>
               {role !== 'STUDENT' && <Tabs.Tab value="people">People</Tabs.Tab>}
@@ -108,17 +116,51 @@ function ExamsTab({ offeringId, canCreate }: { offeringId: string; canCreate: bo
   )
 }
 
+type RowActions = {
+  setRole: (m: Member, role: Role) => void
+  setNeed: (m: Member, field: 'needsAccessible' | 'leftHanded', value: boolean) => void
+  newLink: (m: Member) => void
+  remove: (m: Member) => void
+}
+
 function PeopleTab({ offeringId, canManage }: { offeringId: string; canManage: boolean }) {
   const members = useLoad(() => api.get<{ members: Member[] }>(`/offerings/${offeringId}/members`), [offeringId])
+  const { reload, setData } = members
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<Role>('PROCTOR')
   const [error, setError] = useState('')
   const [lastInvite, setLastInvite] = useState<Member | null>(null)
 
-  const run = async (fn: () => Promise<unknown>) => {
+  const run = useCallback(async (fn: () => Promise<unknown>) => {
     setError('')
-    try { await fn(); await members.reload() } catch (e) { setError(errorMessage(e)) }
-  }
+    try { await fn(); await reload() } catch (e) { setError(errorMessage(e)) }
+  }, [reload])
+
+  // Stable across renders, so each row (memoised below) only re-renders when
+  // its own member changes. With 150+ students, re-rendering every row on
+  // each click made the checkboxes feel slow.
+  const actions = useMemo<RowActions>(() => ({
+    setRole: (m, role) => run(() => api.patch(`/offerings/${offeringId}/members/${m.id}`, { role })),
+    // Tick the box straight away and save in the background (no reload of the
+    // whole list); if saving fails, put it back and show the error.
+    setNeed: async (m, field, value) => {
+      const apply = (v: boolean) => setData((d) => d && { members: d.members.map((x) => (x.id === m.id ? { ...x, [field]: v } : x)) })
+      setError('')
+      apply(value)
+      try {
+        await api.patch(`/offerings/${offeringId}/members/${m.id}`, { [field]: value })
+      } catch (e) {
+        apply(!value)
+        setError(errorMessage(e))
+      }
+    },
+    newLink: (m) => run(async () => {
+      const { member } = await api.post<{ member: Member }>(`/offerings/${offeringId}/members/${m.id}/invite`)
+      setLastInvite(member)
+    }),
+    remove: (m) => { if (window.confirm(`Remove ${m.email}?`)) run(() => api.del(`/offerings/${offeringId}/members/${m.id}`)) },
+  }), [offeringId, run, setData])
+
   const invite = (e: React.FormEvent) => {
     e.preventDefault()
     run(async () => {
@@ -148,56 +190,77 @@ function PeopleTab({ offeringId, canManage }: { offeringId: string; canManage: b
           )}
         </Card>
       )}
-      <Table striped withTableBorder>
+      {/* Rows stay one line tall; on narrow screens the table scrolls sideways. */}
+      <Table.ScrollContainer minWidth={1150}>
+      <Table striped withTableBorder style={{ whiteSpace: 'nowrap' }}>
         <Table.Thead>
           <Table.Tr>
-            <Table.Th>Name</Table.Th><Table.Th>Email</Table.Th><Table.Th>Student #</Table.Th><Table.Th>Role</Table.Th><Table.Th>Needs</Table.Th>
-            {canManage && <Table.Th />}
+            <Table.Th>Name</Table.Th><Table.Th>Email</Table.Th><Table.Th>Student #</Table.Th><Table.Th>Role</Table.Th>
+            <Table.Th ta="center">Accessible</Table.Th><Table.Th ta="center">Left-handed</Table.Th>
+            {/* Icon-only action columns: one for invite links, one for removing. */}
+            {canManage && <><Table.Th w={56} /><Table.Th w={56} /></>}
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {members.data?.members.map((m) => (
-            <Table.Tr key={m.id} data-testid="member-row">
-              <Table.Td>{m.name}{m.status === 'INVITED' && <Badge ml="xs" size="xs" color="yellow">Invited</Badge>}</Table.Td>
-              <Table.Td>{m.email}</Table.Td>
-              <Table.Td>{m.studentNumber ?? ''}</Table.Td>
-              <Table.Td>
-                {canManage ? (
-                  <Select size="xs" w={130} aria-label={`Role for ${m.email}`} value={m.role} data={ROLE_OPTIONS} allowDeselect={false}
-                    onChange={(v) => v && v !== m.role && run(() => api.patch(`/offerings/${offeringId}/members/${m.id}`, { role: v }))} />
-                ) : roleLabel(m.role)}
-              </Table.Td>
-              <Table.Td>
-                {canManage ? (
-                  // Students set these themselves; instructors can too, when a student asks them to.
-                  <Stack gap={2}>
-                    <Checkbox size="xs" label="Accessible" aria-label={`Accessible seat for ${m.email}`} checked={m.needsAccessible}
-                      onChange={(e) => { const v = e.currentTarget.checked; run(() => api.patch(`/offerings/${offeringId}/members/${m.id}`, { needsAccessible: v })) }} />
-                    <Checkbox size="xs" label="Left-handed" aria-label={`Left-handed desk for ${m.email}`} checked={m.leftHanded}
-                      onChange={(e) => { const v = e.currentTarget.checked; run(() => api.patch(`/offerings/${offeringId}/members/${m.id}`, { leftHanded: v })) }} />
-                  </Stack>
-                ) : [m.needsAccessible && 'Accessible', m.leftHanded && 'Left-handed'].filter(Boolean).join(', ')}
-              </Table.Td>
-              {canManage && (
-                <Table.Td>
-                  <Group gap={4} wrap="nowrap">
-                    {m.status === 'INVITED' && (
-                      <Button size="xs" variant="subtle" onClick={() => run(async () => {
-                        const { member } = await api.post<{ member: Member }>(`/offerings/${offeringId}/members/${m.id}/invite`)
-                        setLastInvite(member)
-                      })}>New link</Button>
-                    )}
-                    <Button size="xs" variant="subtle" color="red" onClick={() => window.confirm(`Remove ${m.email}?`) && run(() => api.del(`/offerings/${offeringId}/members/${m.id}`))}>Remove</Button>
-                  </Group>
-                </Table.Td>
-              )}
-            </Table.Tr>
-          ))}
+          {members.data?.members.map((m) => <MemberRow key={m.id} m={m} canManage={canManage} actions={actions} />)}
         </Table.Tbody>
       </Table>
+      </Table.ScrollContainer>
     </Stack>
   )
 }
+
+/** One person in the People table. Memoised: re-renders only when `m` changes. */
+const MemberRow = memo(function MemberRow({ m, canManage, actions }: { m: Member; canManage: boolean; actions: RowActions }) {
+  // Instructors tick needs here (students normally set them themselves, but
+  // can ask an instructor to). Everyone else sees a check mark.
+  const need = (field: 'needsAccessible' | 'leftHanded', label: string) =>
+    <Center>
+      {canManage ? (
+        <Checkbox size="sm" aria-label={`${label} for ${m.email}`} checked={m[field]}
+          onChange={(e) => actions.setNeed(m, field, e.currentTarget.checked)} />
+      ) : m[field] ? (
+        <Center role="img" aria-label={`${label} for ${m.email}`} c="blue.6"><CheckIcon /></Center>
+      ) : null}
+    </Center>
+
+  return (
+    <Table.Tr data-testid="member-row">
+      <Table.Td>{m.name}{m.status === 'INVITED' && <Badge ml="xs" size="xs" color="yellow">Invited</Badge>}</Table.Td>
+      <Table.Td>{m.email}</Table.Td>
+      <Table.Td>{m.studentNumber ?? ''}</Table.Td>
+      <Table.Td>
+        {canManage ? (
+          <Select size="xs" w={130} aria-label={`Role for ${m.email}`} value={m.role} data={ROLE_OPTIONS} allowDeselect={false}
+            onChange={(v) => v && v !== m.role && actions.setRole(m, v as Role)} />
+        ) : roleLabel(m.role)}
+      </Table.Td>
+      <Table.Td>{need('needsAccessible', 'Accessible seat')}</Table.Td>
+      <Table.Td>{need('leftHanded', 'Left-handed desk')}</Table.Td>
+      {canManage && (
+        <>
+          <Table.Td ta="center">
+            {/* Only people who haven't joined yet have an invite link to replace. */}
+            {m.status === 'INVITED' && (
+              <Tooltip label="Make a new invite link (the old one stops working)" withArrow>
+                <ActionIcon variant="subtle" aria-label={`New invite link for ${m.email}`} onClick={() => actions.newLink(m)}>
+                  <LinkIcon />
+                </ActionIcon>
+              </Tooltip>
+            )}
+          </Table.Td>
+          <Table.Td ta="center">
+            <Tooltip label="Remove from this course" withArrow>
+              <ActionIcon variant="subtle" color="red" aria-label={`Remove ${m.email}`} onClick={() => actions.remove(m)}>
+                <TrashIcon />
+              </ActionIcon>
+            </Tooltip>
+          </Table.Td>
+        </>
+      )}
+    </Table.Tr>
+  )
+})
 
 type RosterResult = { created: number; updated: number; errors: { line: number; message: string }[]; invites: { email: string; inviteUrl: string }[] }
 
