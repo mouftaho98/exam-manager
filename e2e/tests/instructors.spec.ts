@@ -64,3 +64,11 @@ test("users who aren't approved can't create courses", async ({ page }) => {
   await page.getByRole("button", { name: "Create course" }).click();
   await expect(page.getByRole("alert")).toContainText("waiting for an admin");
 });
+
+test("the admin filter survives a refresh", async ({ page }) => {
+  await openAs(page, await admin(), "/admin");
+  await page.getByText("Approved", { exact: true }).click();
+  await expect(page).toHaveURL(/\?status=APPROVED$/);
+  await page.reload();
+  await expect(page.getByRole("radio", { name: "Approved" })).toBeChecked();
+});
