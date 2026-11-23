@@ -27,6 +27,8 @@ ECE1779 Introduction to Cloud Computing, Fall 2026, University of Toronto.
 
 ## Deployment Information
 
+See the [deployment runbook](docs/deployment.md) for local setup, DigitalOcean Kubernetes deployment, monitoring, and load testing.
+
 ## AI Assistance & Verification (Summary)
 See [ai-session.md](ai-session.md).
 

@@ -1,0 +1,24 @@
+# Staging without a domain: the API on plain HTTP at the load balancer's IP.
+# Use ../api-public.yaml instead once you have a hostname and certificate.
+# Browsers block the camera on plain HTTP, so QR scanning won't work here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-public
+  annotations:
+    service.beta.kubernetes.io/do-loadbalancer-type: "REGIONAL"
+    service.beta.kubernetes.io/do-loadbalancer-protocol: "http"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-protocol: "http"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-path: "/ready"
+    # Socket.IO starts with long-polling, which must reach the same pod.
+    service.beta.kubernetes.io/do-loadbalancer-sticky-sessions-type: "cookies"
+    service.beta.kubernetes.io/do-loadbalancer-sticky-sessions-cookie-name: "rollcall-lb"
+    service.beta.kubernetes.io/do-loadbalancer-sticky-sessions-cookie-ttl: "3600"
+spec:
+  type: LoadBalancer
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

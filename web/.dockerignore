@@ -1,0 +1,5 @@
+# Files Docker should not copy into the build: they're rebuilt inside the image.
+node_modules
+dist
+.env
+*.tsbuildinfo

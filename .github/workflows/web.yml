@@ -1,0 +1,31 @@
+name: Web
+
+# Builds the web image on every PR that touches the web app, so a broken
+# TypeScript build or Dockerfile is caught before merge.
+on:
+  pull_request:
+    paths: ["web/**", ".github/workflows/web.yml"]
+  push:
+    branches: [main]
+    paths: ["web/**", ".github/workflows/web.yml"]
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker:
+    name: Docker image builds and serves
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t rollcall-web:ci web
+      - name: Serve the image and fetch a client-side route
+        run: |
+          docker run -d --name web -p 8080:8080 rollcall-web:ci
+          for i in $(seq 1 30); do
+            if curl -sf localhost:8080/proctor | grep -q '<div id="root">'; then exit 0; fi
+            sleep 1
+          done
+          echo "Web never served index.html"; docker logs web; exit 1
