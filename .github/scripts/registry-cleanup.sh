@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Keeps the DigitalOcean container registry under its free-plan limit
-# (~524 MB; each API image is ~175 MB) without making deploys wait.
+# (Basic plan: 5 GB; the old free plan was ~524 MB; each API image is ~175 MB) without making deploys wait.
 #
 #   registry-cleanup.sh prepare   before pushing: make sure the new images fit
 #   registry-cleanup.sh tidy      after a successful deploy: free space for the next one
@@ -14,14 +14,14 @@
 #
 # Needs: doctl (logged in), kubectl (pointed at the cluster), jq.
 # Env: REPOSITORY (registry.digitalocean.com/<registry>/<repo>), NAMESPACE.
-# Optional: QUOTA_MB (524), NEED_MB (room a deploy needs, 230),
+# Optional: QUOTA_MB (5000), NEED_MB (room a deploy needs, 230),
 #           GC_WAIT_MINUTES (30), DRY_RUN=1 (print, change nothing).
 set -euo pipefail
 
 MODE="${1:?usage: registry-cleanup.sh prepare|tidy}"
 REGISTRY_NAME="${REPOSITORY#registry.digitalocean.com/}"; REGISTRY_NAME="${REGISTRY_NAME%%/*}"
 REPO_NAME="${REPOSITORY##*/}"
-QUOTA_MB="${QUOTA_MB:-524}"
+QUOTA_MB="${QUOTA_MB:-5000}"
 NEED_MB="${NEED_MB:-230}"
 GC_WAIT_MINUTES="${GC_WAIT_MINUTES:-30}"
 

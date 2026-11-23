@@ -68,7 +68,7 @@ jobs:
           doctl registry login --expiry-seconds 3600
           doctl kubernetes cluster kubeconfig save "$CLUSTER" --expiry-seconds 3600
 
-      # Free registry plan (~524 MB): wait for any cleanup still running from
+      # Basic registry plan (5 GB): wait for any cleanup still running from
       # the last deploy, and only clean up now if the new images won't fit.
       # See .github/scripts/registry-cleanup.sh.
       - name: Make sure the new images fit in the registry
