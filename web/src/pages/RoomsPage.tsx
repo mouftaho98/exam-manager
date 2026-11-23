@@ -31,20 +31,23 @@ export default function RoomsPage() {
   }
 
   return (
-    <Layout title="Rooms" size="lg">
+    <Layout title="Rooms" size="xl">
       <Stack gap="lg">
         <Card withBorder padding="md">
           <Title order={4} mb="sm">New room</Title>
           {error && <Alert color="red" mb="sm">{error}</Alert>}
           <form onSubmit={create}>
-            <Stack gap="md">
-              <Group grow>
-                <TextInput label="Room name" placeholder="BA 1130" value={name} onChange={(e) => setName(e.target.value)} required />
-                <TextInput label="Building" placeholder="Bahen Centre" value={building} onChange={(e) => setBuilding(e.target.value)} />
-              </Group>
-              <RoomBuilder grid={grid} onChange={setGrid} />
-              <Button type="submit">Create room</Button>
-            </Stack>
+            <RoomBuilder
+              grid={grid}
+              onChange={setGrid}
+              side={
+                <>
+                  <TextInput label="Room name" placeholder="BA 1130" value={name} onChange={(e) => setName(e.target.value)} required />
+                  <TextInput label="Building" placeholder="Bahen Centre" value={building} onChange={(e) => setBuilding(e.target.value)} />
+                </>
+              }
+              actions={<Button type="submit" fullWidth>Create room</Button>}
+            />
           </form>
         </Card>
         <Card withBorder padding="md">

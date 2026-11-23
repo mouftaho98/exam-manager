@@ -4,6 +4,7 @@
  */
 import { Group, Stack, Text, UnstyledButton } from '@mantine/core'
 import type { Seat, SeatRow } from '../lib/types'
+import { useCellSize } from '../lib/useCellSize'
 
 export type SeatLook = { bg: string; border?: string; text?: string; title?: string; label?: string }
 
@@ -22,21 +23,28 @@ type Props<S extends Seat> = {
 }
 
 export default function SeatMap<S extends Seat>({ rows, look = markingLook, onSeatClick }: Props<S>) {
+  // Size seats to fill the available width (including walkway rows), so
+  // every room's map takes about the same space whatever its size.
+  const cols = Math.max(1, ...rows.flatMap((r) => r.seats.map((s) => s.col + 1)))
+  const rowSpan = rows.length ? rows[rows.length - 1].row - rows[0].row + 1 : 1
+  const fit = useCellSize(cols, rowSpan, { max: 90 })
+
   return (
-    <div style={{ overflowX: 'auto' }}>
-    {/* inline-block so "Front of room" is centred over the seats, not the page */}
-    <Stack gap={4} style={{ display: 'inline-flex' }} data-testid="seat-map">
-      <Text size="xs" c="dimmed" ta="center" bg="gray.1" style={{ borderRadius: 4 }}>Front of room</Text>
+    <div ref={fit.ref} style={{ overflowX: 'auto' }}>
+    {/* inline-flex so "Front of room" is centred over the seats, not the page */}
+    <Stack gap={fit.gap} style={{ display: 'inline-flex' }} data-testid="seat-map">
+      <Text size="xs" c="dimmed" ta="center" bg="gray.1" mb={fit.gap} style={{ borderRadius: 4 }}>Front of room</Text>
       {rows.map((r, i) => {
         // A gap in row numbers is a walkway; leave the space for it.
-        const walkway = i > 0 && r.row - rows[i - 1].row > 1 ? (r.row - rows[i - 1].row - 1) * 40 : 0
+        const missing = i > 0 ? r.row - rows[i - 1].row - 1 : 0
+        const walkway = missing > 0 ? missing * (fit.height + fit.gap) : 0
         const maxCol = Math.max(...r.seats.map((s) => s.col))
         const byCol = new Map(r.seats.map((s) => [s.col, s]))
         return (
-          <Group key={r.row} gap={4} wrap="nowrap" mt={walkway}>
+          <Group key={r.row} gap={fit.gap} wrap="nowrap" mt={walkway}>
             {Array.from({ length: maxCol + 1 }, (_, col) => {
               const seat = byCol.get(col)
-              if (!seat) return <div key={col} style={{ width: 44, height: 36 }} />
+              if (!seat) return <div key={col} style={{ width: fit.size, height: fit.height, flexShrink: 0 }} />
               const l = look(seat)
               return (
                 <UnstyledButton
@@ -45,13 +53,14 @@ export default function SeatMap<S extends Seat>({ rows, look = markingLook, onSe
                   aria-label={l.title ?? seat.label}
                   onClick={onSeatClick ? () => onSeatClick(seat) : undefined}
                   style={{
-                    width: 44, height: 36, fontSize: 11, textAlign: 'center', lineHeight: '32px', flexShrink: 0,
-                    borderRadius: 6, background: l.bg, color: l.text ?? '#222',
+                    width: fit.size, height: fit.height, fontSize: fit.fontSize, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    borderRadius: Math.max(3, fit.size / 7), background: l.bg, color: l.text ?? '#222',
                     border: `2px solid ${l.border ?? '#ced4da'}`, cursor: onSeatClick ? 'pointer' : 'default',
-                    overflow: 'hidden', whiteSpace: 'nowrap',
+                    overflow: 'hidden', whiteSpace: 'nowrap', boxSizing: 'border-box',
                   }}
                 >
-                  {l.label ?? seat.label}
+                  {fit.showLabels ? l.label ?? seat.label : ''}
                 </UnstyledButton>
               )
             })}

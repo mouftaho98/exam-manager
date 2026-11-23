@@ -7,9 +7,10 @@
  * (A, B, C…) and seats are numbered left to right, skipping aisles, so the
  * labels match what students see on their seat.
  */
-import { useEffect, useRef, useState } from 'react'
-import { Badge, Button, Group, NumberInput, SegmentedControl, Stack, Text } from '@mantine/core'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Button, Group, NumberInput, SegmentedControl, Stack, Text } from '@mantine/core'
 import type { Room } from '../lib/types'
+import { useCellSize } from '../lib/useCellSize'
 
 export type Cell = { accessible: boolean; leftHanded: boolean; broken: boolean } | null
 export type Grid = Cell[][]
@@ -91,7 +92,24 @@ function describe(cell: Cell, label: string | null, r: number, c: number) {
   return marks.length ? `${label} (${marks.join(', ')})` : `${label}`
 }
 
-export default function RoomBuilder({ grid, onChange }: { grid: Grid; onChange: (g: Grid) => void }) {
+type Props = {
+  grid: Grid
+  onChange: (g: Grid) => void
+  /** Extra fields shown at the top of the sidebar (e.g. room name). */
+  side?: ReactNode
+  /** Buttons at the bottom of the sidebar (e.g. Create / Save). */
+  actions?: ReactNode
+}
+
+/** Swatch shown next to each tool; the tool list doubles as the legend. */
+const TOOLS: { value: Tool; label: string; swatch: React.CSSProperties }[] = [
+  { value: 'seat', label: 'Seats', swatch: cellStyle(plainSeat()) },
+  { value: 'accessible', label: 'Accessible', swatch: cellStyle({ ...plainSeat(), accessible: true }) },
+  { value: 'leftHanded', label: 'Left-handed', swatch: cellStyle({ ...plainSeat(), leftHanded: true }) },
+  { value: 'broken', label: 'Broken', swatch: cellStyle({ ...plainSeat(), broken: true }) },
+]
+
+export default function RoomBuilder({ grid, onChange, side, actions }: Props) {
   const [tool, setTool] = useState<Tool>('seat')
   // While the pointer is down, every square it passes gets the same change
   // (add or remove), decided by the first square, like a paint brush.
@@ -135,35 +153,49 @@ export default function RoomBuilder({ grid, onChange }: { grid: Grid; onChange: 
   const labels = seatLabels(grid)
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
+  // Seats shrink as rows/columns are added so the map keeps filling the space.
+  const fit = useCellSize(cols, rows, { max: 90 })
 
   return (
-    <Stack gap="sm">
-      <Group gap="sm" align="flex-end" wrap="wrap">
-        <NumberInput label="Rows" value={rows} min={1} max={MAX_ROWS} w={90} onChange={(v) => resize(Number(v), cols)} />
-        <NumberInput label="Columns" value={cols} min={1} max={MAX_COLS} w={100} onChange={(v) => resize(rows, Number(v))} />
-        <Button variant="light" size="sm" onClick={() => onChange(makeGrid(rows, cols, true))}>Fill with seats</Button>
-        <Button variant="subtle" size="sm" color="gray" onClick={() => onChange(makeGrid(rows, cols, false))}>Clear</Button>
-      </Group>
+    // Controls on the left, the map on the right; they stack on narrow screens.
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-start' }}>
+      <Stack gap="sm" style={{ flex: '0 0 250px', minWidth: 0 }}>
+        {side}
+        <Group gap="xs" grow>
+          <NumberInput label="Rows" value={rows} min={1} max={MAX_ROWS} onChange={(v) => resize(Number(v), cols)} />
+          <NumberInput label="Columns" value={cols} min={1} max={MAX_COLS} onChange={(v) => resize(rows, Number(v))} />
+        </Group>
+        <Group gap="xs" grow>
+          <Button variant="light" size="xs" onClick={() => onChange(makeGrid(rows, cols, true))}>Fill with seats</Button>
+          <Button variant="default" size="xs" onClick={() => onChange(makeGrid(rows, cols, false))}>Clear</Button>
+        </Group>
 
-      <Group justify="space-between" wrap="wrap" gap="xs">
-        <SegmentedControl
-          size="xs" value={tool} onChange={(v) => setTool(v as Tool)} aria-label="Drawing tool"
-          data={[
-            { label: 'Seats', value: 'seat' },
-            { label: 'Accessible', value: 'accessible' },
-            { label: 'Left-handed', value: 'leftHanded' },
-            { label: 'Broken', value: 'broken' },
-          ]}
-        />
+        <div>
+          <Text size="sm" fw={500} mb={4}>Draw</Text>
+          <SegmentedControl
+            orientation="vertical" fullWidth size="sm" value={tool} onChange={(v) => setTool(v as Tool)} aria-label="Drawing tool"
+            data={TOOLS.map((t) => ({
+              value: t.value,
+              label: (
+                <Group gap={8} wrap="nowrap" justify="flex-start">
+                  <span style={{ width: 16, height: 14, borderRadius: 3, boxSizing: 'border-box', flexShrink: 0, ...t.swatch }} />
+                  <span>{t.label}</span>
+                </Group>
+              ),
+            }))}
+          />
+          <Text size="xs" c="dimmed" mt={6}>
+            {tool === 'seat'
+              ? 'Click or drag to add seats; drag over seats to remove them. Gaps are aisles, empty rows are walkways.'
+              : 'Click or drag over seats to turn this on; do it again to turn it off. Broken seats are never assigned.'}
+          </Text>
+        </div>
+
         <Text size="sm" data-testid="builder-count"><b>{usableCount(grid)}</b> usable seats{seatCount(grid) !== usableCount(grid) ? ` (${seatCount(grid) - usableCount(grid)} broken)` : ''}</Text>
-      </Group>
-      <Text size="xs" c="dimmed">
-        {tool === 'seat'
-          ? 'Click or drag to add seats. Click or drag over seats to remove them and leave an aisle. An empty row becomes a walkway.'
-          : 'Click or drag over seats to turn this marking on; do it again to turn it off.'}
-      </Text>
+        {actions}
+      </Stack>
 
-      <div style={{ overflowX: 'auto', paddingBottom: 4 }}>
+      <div ref={fit.ref} style={{ flex: '1 1 360px', minWidth: 0, overflowX: 'auto', paddingBottom: 4 }}>
         <div
           style={{ display: 'inline-block', touchAction: 'none', userSelect: 'none' }}
           onPointerDown={(e) => {
@@ -188,11 +220,11 @@ export default function RoomBuilder({ grid, onChange }: { grid: Grid; onChange: 
             s.last = hit
           }}
         >
-          <div style={{ textAlign: 'center', fontSize: 11, color: '#495057', background: '#f1f3f5', borderRadius: 4, padding: '2px 0', marginBottom: 6 }}>
+          <div style={{ textAlign: 'center', fontSize: 12, color: '#495057', background: '#f1f3f5', borderRadius: 4, padding: '3px 0', marginBottom: fit.gap * 2 }}>
             Front of room
           </div>
           {grid.map((row, r) => (
-            <div key={r} style={{ display: 'flex', gap: 3, marginBottom: 3 }}>
+            <div key={r} style={{ display: 'flex', gap: fit.gap, marginBottom: fit.gap }}>
               {row.map((cell, c) => (
                 <div
                   key={c}
@@ -203,25 +235,18 @@ export default function RoomBuilder({ grid, onChange }: { grid: Grid; onChange: 
                   aria-label={describe(cell, labels[r][c], r, c)}
                   title={describe(cell, labels[r][c], r, c)}
                   style={{
-                    width: 34, height: 30, borderRadius: 5, fontSize: 10, lineHeight: '26px', textAlign: 'center',
+                    width: fit.size, height: fit.height, borderRadius: Math.max(3, fit.size / 7), fontSize: fit.fontSize,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
                     cursor: 'pointer', flexShrink: 0, boxSizing: 'border-box', ...cellStyle(cell),
                   }}
                 >
-                  {cell ? labels[r][c] : ''}
+                  {cell && fit.showLabels ? labels[r][c] : ''}
                 </div>
               ))}
             </div>
           ))}
         </div>
       </div>
-
-      <Group gap="xs">
-        <Badge variant="outline" color="gray">Seat</Badge>
-        <Badge variant="light" color="blue">Accessible</Badge>
-        <Badge variant="light" color="violet">Left-handed</Badge>
-        <Badge variant="light" color="red">Broken (never assigned)</Badge>
-        <Badge variant="transparent" color="gray">Dashed = aisle / empty</Badge>
-      </Group>
-    </Stack>
+    </div>
   )
 }
