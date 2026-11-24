@@ -15,7 +15,9 @@
 # Needs: doctl (logged in), kubectl (pointed at the cluster), jq.
 # Env: REPOSITORY (registry.digitalocean.com/<registry>/<repo>), NAMESPACE.
 # Optional: QUOTA_MB (5000), NEED_MB (room a deploy needs, 230),
-#           GC_WAIT_MINUTES (30), DRY_RUN=1 (print, change nothing).
+#           GC_WAIT_MINUTES (30), DRY_RUN=1 (print, change nothing),
+#           PREPARE_LIMIT_PCT (80: clean before a push only past this % of the
+#           quota), TIDY_ABOVE_PCT (40: start GC after a deploy only past this %).
 set -euo pipefail
 
 MODE="${1:?usage: registry-cleanup.sh prepare|tidy}"
@@ -24,6 +26,8 @@ REPO_NAME="${REPOSITORY##*/}"
 QUOTA_MB="${QUOTA_MB:-5000}"
 NEED_MB="${NEED_MB:-230}"
 GC_WAIT_MINUTES="${GC_WAIT_MINUTES:-30}"
+PREPARE_LIMIT_PCT="${PREPARE_LIMIT_PCT:-80}"
+TIDY_ABOVE_PCT="${TIDY_ABOVE_PCT:-40}"
 
 run() { if [ -n "${DRY_RUN:-}" ]; then echo "[dry run] $*"; else "$@"; fi; }
 
@@ -81,7 +85,7 @@ case "$MODE" in
     wait_for_gc
     used=$(used_mb)
     echo "registry usage: ${used} MB of ${QUOTA_MB} MB; a deploy needs ~${NEED_MB} MB"
-    if [ $((used + NEED_MB)) -le "$QUOTA_MB" ]; then
+    if [ $((used + NEED_MB)) -le $((QUOTA_MB * PREPARE_LIMIT_PCT / 100)) ]; then
       echo "enough room"
       exit 0
     fi
@@ -100,8 +104,15 @@ case "$MODE" in
       exit 0
     fi
     deleted=$(delete_old_tags)
-    start_gc
-    echo "deleted ${deleted} old tag(s); garbage collection started (finishes in the background)"
+    used=$(used_mb)
+    # Collecting briefly makes the registry read-only, so only do it once the
+    # registry is getting full, not after every deploy.
+    if [ "$used" -ge $((QUOTA_MB * TIDY_ABOVE_PCT / 100)) ]; then
+      start_gc
+      echo "deleted ${deleted} old tag(s); ${used} MB used, garbage collection started (finishes in the background)"
+    else
+      echo "deleted ${deleted} old tag(s); ${used} MB used, under ${TIDY_ABOVE_PCT}% of ${QUOTA_MB} MB so no garbage collection yet"
+    fi
     ;;
   *)
     echo "usage: registry-cleanup.sh prepare|tidy" >&2
