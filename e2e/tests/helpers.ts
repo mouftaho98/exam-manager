@@ -208,3 +208,9 @@ export async function choose(page: Page, label: string | RegExp, option: string 
 }
 
 export { expect };
+
+/** The exam page's seating card opens as a list; switch it to the seat map. */
+export async function showMap(page: Page) {
+  await page.getByText("Map", { exact: true }).click();
+  await expect(page.getByTestId("seat-map").first()).toBeVisible();
+}

@@ -98,8 +98,27 @@ Before running, install `api/` and `web/` (`npm ci` in each, plus `npx prisma ge
 - [x] Students only see their own exams and can't read the seating chart
 - [ ] Email when a seat is assigned or changed (stretch goal 1)
 
+### Exam setup (`exam-setup.spec.ts`)
+- [x] Setup and exam day are separate pages; the exam page has no setup controls
+- [x] Only instructors get the setup page; proctors don't see the link
+- [x] The exam page says when seating isn't set up yet and links instructors to setup
+- [x] The exams list links instructors to each exam's setup
+- [x] Edit the exam's title and duration
+- [x] Clear all seating, switch rooms, and generate again
+- [x] Clearing after check-in starts warns and removes the check-ins too; cancelling keeps the seating
+- [x] An exam with no seating can't be cleared
+
+### Seating list (`seating-list.spec.ts`)
+- [x] The list shows each student's number, room, seat and status
+- [x] A checked-in student shows as checked in; the status filter finds who is missing
+- [x] Search by name or student number
+- [x] A big class is paginated (25 per page)
+- [x] List and map views switch, and the choice survives a refresh (`?view=`)
+- [x] "Move" in the list opens the map on that student's room and moves them
+- [x] Proctors get the list too
+
 ### Exam-day check-in (`checkin.spec.ts`)
-- [x] Type the student number from the ID card; the seat is shown on the room map
+- [x] Type the student number from the ID card; the seat is shown
 - [x] Enter submits (how USB / phone card readers type)
 - [x] Scanning the same card twice doesn't double count
 - [x] A student at the wrong room is sent to the right one

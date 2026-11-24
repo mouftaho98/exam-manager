@@ -86,7 +86,10 @@ function ExamsTab({ offeringId, canCreate }: { offeringId: string; canCreate: bo
               <Anchor component={Link} to={`/exams/${ex.id}`} fw={600}>{ex.title}</Anchor>
               <Text size="sm" c="dimmed">{formatWhen(ex.startsAt)} · {ex.durationMinutes} min · {ex.rooms.map((r) => r.name).join(', ') || 'No rooms yet'}</Text>
             </div>
-            <Badge color={ex.seatingGeneratedAt ? 'green' : 'gray'} variant="light">{ex.seatingGeneratedAt ? 'Seats assigned' : 'No seating yet'}</Badge>
+            <Group gap="xs">
+              <Badge color={ex.seatingGeneratedAt ? 'green' : 'gray'} variant="light">{ex.seatingGeneratedAt ? 'Seats assigned' : 'No seating yet'}</Badge>
+              {canCreate && <Button component={Link} to={`/exams/${ex.id}/setup`} size="compact-xs" variant="light">Set up</Button>}
+            </Group>
           </Group>
         </Card>
       ))}

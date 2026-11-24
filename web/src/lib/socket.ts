@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { io } from 'socket.io-client'
 import { API_URL, getToken } from './api'
 
-const EVENTS = ['checkin:created', 'checkin:removed', 'seat:moved', 'seating:generated'] as const
+const EVENTS = ['checkin:created', 'checkin:removed', 'seat:moved', 'seating:generated', 'seating:cleared'] as const
 
 /** Calls `onEvent` for every live event on `examId`. Returns whether we're connected. */
 export function useExamEvents(examId: string | undefined, onEvent: (event: string, payload: any) => void) {

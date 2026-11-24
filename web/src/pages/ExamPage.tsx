@@ -1,23 +1,24 @@
 /**
  * One exam. Students see their room and seat. Staff (instructors and
  * proctors) run exam day here: check students in with their ID card, watch
- * every room fill up live, and move students between seats. Instructors also
- * pick the rooms and generate the seating.
+ * every room fill up live, and move students between seats. Instructors set
+ * up the rooms and seating on the exam setup page (ExamSetupPage).
  */
 import { useCallback, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
-  Alert, Anchor, Badge, Button, Card, Group, MultiSelect, Progress, Select, Stack, Table, Tabs, Text, TextInput, Title,
+  Alert, Anchor, Badge, Button, Card, Group, Progress, SegmentedControl, Select, Stack, Table, Tabs, Text, TextInput, Title,
 } from '@mantine/core'
 import CardScanner from '../components/CardScanner'
 import Layout from '../components/Layout'
+import SeatingList, { type SeatingStudent } from '../components/SeatingList'
 import SeatMap, { markingLook, type SeatLook } from '../components/SeatMap'
 import { ApiError, api, errorMessage } from '../lib/api'
 import { formatWhen } from '../lib/format'
 import { useLoad } from '../lib/hooks'
 import { useExamEvents } from '../lib/socket'
 import { useUrlState } from '../lib/useUrlState'
-import type { Attendance, Exam, Role, RoomSummary, Seat, SeatRow, Seating, SeatingSeat, StudentSummary } from '../lib/types'
+import type { Attendance, Exam, Role, Seat, SeatRow, Seating, SeatingSeat, StudentSummary } from '../lib/types'
 
 type StudentView = {
   exam: Exam
@@ -40,7 +41,7 @@ export default function ExamPage() {
             {formatWhen(d.exam.startsAt)} · {d.exam.durationMinutes} min · {d.exam.rooms.map((r) => r.name).join(', ') || 'No rooms yet'}
             {' · '}<Anchor component={Link} to={`/offerings/${d.exam.offeringId}`}>Back to course</Anchor>
           </Text>
-          {d.myRole === 'STUDENT' ? <StudentExam view={d as StudentView} /> : <StaffExam view={d as StaffView} reloadDetail={detail.reload} />}
+          {d.myRole === 'STUDENT' ? <StudentExam view={d as StudentView} /> : <StaffExam view={d as StaffView} />}
         </Stack>
       )}
     </Layout>
@@ -67,7 +68,7 @@ function StudentExam({ view }: { view: StudentView }) {
       </Card>
       <Card withBorder padding="md">
         <Title order={5} mb="sm">Room map</Title>
-        <SeatMap rows={mine.room.rows} look={look} />
+        <SeatMap rows={mine.room.rows} look={look} axes />
       </Card>
     </Stack>
   )
@@ -78,7 +79,7 @@ type CheckinResult =
   | { kind: 'wrong_room'; message: string; roomName: string; seatLabel: string }
   | { kind: 'error'; message: string }
 
-function StaffExam({ view, reloadDetail }: { view: StaffView; reloadDetail: () => void }) {
+function StaffExam({ view }: { view: StaffView }) {
   const exam = view.exam
   const isInstructor = view.myRole === 'INSTRUCTOR'
   const seating = useLoad(() => api.get<Seating>(`/exams/${exam.id}/seating`), [exam.id])
@@ -90,65 +91,24 @@ function StaffExam({ view, reloadDetail }: { view: StaffView; reloadDetail: () =
 
   return (
     <Stack gap="md">
-      <Group gap="xs">
-        <Badge color={live ? 'green' : 'gray'} variant="dot">{live ? 'Live' : 'Connecting…'}</Badge>
-        <Text size="sm" c="dimmed">{view.counts.students} students · {view.counts.assigned} seated</Text>
+      <Group gap="xs" justify="space-between">
+        <Group gap="xs">
+          <Badge color={live ? 'green' : 'gray'} variant="dot">{live ? 'Live' : 'Connecting…'}</Badge>
+          <Text size="sm" c="dimmed">{view.counts.students} students · {view.counts.assigned} seated</Text>
+        </Group>
+        {isInstructor && <Button component={Link} to={`/exams/${exam.id}/setup`} size="xs" variant="light">Exam setup</Button>}
       </Group>
-      {isInstructor && <SetupCard exam={exam} hasCheckins={(attendance.data?.totals.checkedIn ?? 0) > 0} onChange={() => { reloadDetail(); seating.reload(); attendance.reload() }} />}
+      {!exam.seatingGeneratedAt && (
+        <Alert color="yellow" title="Seating isn't set up yet">
+          {isInstructor
+            ? <>Choose the rooms and generate seating on the <Anchor component={Link} to={`/exams/${exam.id}/setup`}>exam setup page</Anchor>.</>
+            : 'An instructor still needs to set up the rooms and seating.'}
+        </Alert>
+      )}
       {exam.rooms.length > 0 && <CheckinCard exam={exam} seating={seating.data} />}
       <AttendanceCard attendance={attendance.data} />
       {seating.data && seating.data.rooms.length > 0 && <SeatingCard exam={exam} seating={seating.data} onChange={() => { seating.reload(); attendance.reload() }} />}
     </Stack>
-  )
-}
-
-/** Instructors: choose the exam's rooms and (re)generate seating. */
-function SetupCard({ exam, hasCheckins, onChange }: { exam: Exam; hasCheckins: boolean; onChange: () => void }) {
-  const rooms = useLoad(() => api.get<{ rooms: RoomSummary[] }>('/rooms'))
-  const [roomIds, setRoomIds] = useState(exam.rooms.map((r) => r.id))
-  const [error, setError] = useState('')
-  const [result, setResult] = useState<{ assigned: number; unassigned: StudentSummary[]; warnings: string[] } | null>(null)
-
-  const saveRooms = async () => {
-    setError('')
-    try { await api.put(`/exams/${exam.id}/rooms`, { roomIds }); onChange() } catch (e) { setError(errorMessage(e)) }
-  }
-  const generate = async () => {
-    if (exam.seatingGeneratedAt && !window.confirm('Reshuffle everyone? Students keep their check-in codes, but seats change.')) return
-    setError('')
-    try {
-      setResult(await api.post(`/exams/${exam.id}/seating/generate`))
-      onChange()
-    } catch (e) { setError(errorMessage(e)) }
-  }
-  const changed = roomIds.slice().sort().join() !== exam.rooms.map((r) => r.id).sort().join()
-
-  return (
-    <Card withBorder padding="md">
-      <Title order={5} mb="sm">Setup</Title>
-      {error && <Alert color="red" mb="sm">{error}</Alert>}
-      <Group align="flex-end" wrap="wrap">
-        <MultiSelect
-          label="Rooms" searchable style={{ flexGrow: 1, minWidth: 240 }}
-          data={(rooms.data?.rooms ?? []).map((r) => ({ value: r.id, label: `${r.name} · ${r.capacity} seats` }))}
-          value={roomIds} onChange={setRoomIds}
-        />
-        <Button variant="light" onClick={saveRooms} disabled={!changed}>Save rooms</Button>
-        <Button onClick={generate} disabled={exam.rooms.length === 0 || changed || hasCheckins}>
-          {exam.seatingGeneratedAt ? 'Regenerate seating' : 'Generate seating'}
-        </Button>
-      </Group>
-      {hasCheckins && <Text size="xs" c="dimmed" mt="xs">Check-in has started, so seating can only be changed by moving students.</Text>}
-      {result && (
-        <Stack gap={4} mt="sm">
-          <Alert color={result.unassigned.length ? 'yellow' : 'green'}>
-            Seated {result.assigned} student{result.assigned === 1 ? '' : 's'}.
-            {result.unassigned.length > 0 && ` ${result.unassigned.length} didn't fit: ${result.unassigned.map((s) => s.name).join(', ')}.`}
-          </Alert>
-          {result.warnings.map((w) => <Text key={w} size="sm" c="orange">{w}</Text>)}
-        </Stack>
-      )}
-    </Card>
   )
 }
 
@@ -188,9 +148,6 @@ function CheckinCard({ exam, seating }: { exam: Exam; seating: Seating | null })
   }
   const onScan = useCallback((text: string) => { setScanning(false); checkIn({ studentNumber: text }) }, [roomId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // After a successful check-in, show where the student sits in this room.
-  const resultRoom = result?.kind === 'ok' ? seating?.rooms.find((r) => r.id === result.roomId) : undefined
-
   return (
     <Card withBorder padding="md">
       <Title order={5} mb="sm">Check in</Title>
@@ -227,11 +184,6 @@ function CheckinCard({ exam, seating }: { exam: Exam; seating: Seating | null })
           </Alert>
         )}
         {result?.kind === 'error' && <Alert color="red">{result.message}</Alert>}
-        {result?.kind === 'ok' && resultRoom && (
-          <SeatMap rows={resultRoom.rows} look={(s) => (s.id === result.seat.id
-            ? { bg: '#2f9e44', text: '#fff', border: '#2b8a3e', title: `${s.label} — ${result.student.name}` }
-            : { bg: '#f1f3f5', title: s.label })} />
-        )}
       </Stack>
       <CardScanner opened={scanning} onClose={() => setScanning(false)} onScan={onScan} />
     </Card>
@@ -241,8 +193,7 @@ function CheckinCard({ exam, seating }: { exam: Exam; seating: Seating | null })
 /** Live counts for every room, and who hasn't arrived yet. */
 function AttendanceCard({ attendance }: { attendance: Attendance | null }) {
   if (!attendance) return null
-  const { totals, rooms, missing } = attendance
-  const roomName = new Map(rooms.map((r) => [r.id, r.name]))
+  const { totals, rooms } = attendance
   return (
     <Card withBorder padding="md">
       <Group justify="space-between" mb="sm">
@@ -265,16 +216,6 @@ function AttendanceCard({ attendance }: { attendance: Attendance | null }) {
           ))}
         </Table.Tbody>
       </Table>
-      {missing.length > 0 && (
-        <>
-          <Text size="sm" fw={500} mt="sm" mb={4}>Not here yet</Text>
-          <Stack gap={2}>
-            {missing.map((m) => (
-              <Text key={m.studentId} size="sm" data-testid="missing-student">{m.name} · {roomName.get(m.roomId)} {m.seatLabel}</Text>
-            ))}
-          </Stack>
-        </>
-      )}
     </Card>
   )
 }
@@ -284,10 +225,25 @@ function AttendanceCard({ attendance }: { attendance: Attendance | null }) {
  * seat to move them there (swapping if someone is in it).
  */
 function SeatingCard({ exam, seating, onChange }: { exam: Exam; seating: Seating; onChange: () => void }) {
-  const [selected, setSelected] = useState<(StudentSummary & { checkedInAt?: string | null; seatLabel?: string }) | null>(null)
+  const [selected, setSelected] = useState<SeatingStudent | null>(null)
   // Which room's map is open, kept in the URL (?map=<roomId>).
   const [mapRoom, setMapRoom] = useUrlState('map', seating.rooms[0].id, seating.rooms.map((r) => r.id))
+  // List (a table of students) or map, kept in the URL (?view=map).
+  const [view, setView] = useUrlState<'list' | 'map'>('view', 'list', ['list', 'map'])
+  const [, setParams] = useSearchParams()
   const [error, setError] = useState('')
+
+  // "Move" in the list: pick the student, then show the map to choose their new seat.
+  const startMove = (s: SeatingStudent) => {
+    setSelected(s)
+    // One URL update for both: two separate ones would overwrite each other.
+    setParams((prev) => {
+      const p = new URLSearchParams(prev)
+      p.set('view', 'map')
+      if (s.roomId) p.set('map', s.roomId)
+      return p
+    }, { replace: true })
+  }
 
   const move = async (seat: SeatingSeat) => {
     if (!selected || seat.broken) return
@@ -312,8 +268,9 @@ function SeatingCard({ exam, seating, onChange }: { exam: Exam; seating: Seating
 
   const look = (s: SeatingSeat): SeatLook => {
     const base = markingLook(s)
-    if (s.broken) return base
-    if (!s.student) return { ...base, title: `${s.label} (empty)` }
+    // Rows and columns are labelled on the map, so empty and broken seats say what they are.
+    if (s.broken) return { ...base, label: 'Broken', fontScale: 0.7, text: '#c92a2a' }
+    if (!s.student) return { ...base, label: 'Empty', fontScale: 0.7, text: '#868e96', title: `${s.label} (empty)` }
     const isSelected = selected?.studentId === s.student.studentId
     const initials = s.student.name.split(' ').map((p) => p[0]).join('').slice(0, 3).toUpperCase()
     return {
@@ -326,26 +283,37 @@ function SeatingCard({ exam, seating, onChange }: { exam: Exam; seating: Seating
 
   return (
     <Card withBorder padding="md">
-      <Title order={5} mb="xs">Seating</Title>
-      <Text size="sm" c="dimmed" mb="sm">Green: checked in. Yellow: not here yet. Orange border: moved by hand. Click a student, then a seat, to move them.</Text>
+      <Group justify="space-between" mb="xs" wrap="wrap">
+        <Title order={5}>Seating</Title>
+        <SegmentedControl
+          size="xs" value={view} onChange={(v) => { if (v === 'list') setSelected(null); setView(v as 'list' | 'map') }}
+          data={[{ value: 'list', label: 'List' }, { value: 'map', label: 'Map' }]}
+        />
+      </Group>
+      {view === 'map' && (
+        <Text size="sm" c="dimmed" mb="sm">Green: checked in. Yellow: not here yet. Orange border: moved by hand. Click a student, then a seat, to move them.</Text>
+      )}
       {error && <Alert color="red" mb="sm">{error}</Alert>}
-      {selected && (
+      {selected && view === 'map' && (
         <Alert color="blue" mb="sm" withCloseButton onClose={() => setSelected(null)} title={`Moving ${selected.name}`}>
           <Text size="sm">Now click the seat to move them to{selected.seatLabel ? ` (currently ${selected.seatLabel})` : ''}.</Text>
           {selected.checkedInAt && <Button size="xs" variant="light" color="red" mt="xs" onClick={undoCheckin}>Undo check-in</Button>}
         </Alert>
       )}
-      <Tabs value={mapRoom} onChange={(v) => v && setMapRoom(v)}>
-        <Tabs.List>
-          {seating.rooms.map((r) => <Tabs.Tab key={r.id} value={r.id}>{r.name}</Tabs.Tab>)}
-        </Tabs.List>
-        {seating.rooms.map((r) => (
-          <Tabs.Panel key={r.id} value={r.id} pt="sm">
-            <SeatMap rows={r.rows} look={look} onSeatClick={onSeatClick} />
-          </Tabs.Panel>
-        ))}
-      </Tabs>
-      {seating.unassigned.length > 0 && (
+      {view === 'list' && <SeatingList seating={seating} onMove={startMove} />}
+      {view === 'map' && (
+        <Tabs value={mapRoom} onChange={(v) => v && setMapRoom(v)}>
+          <Tabs.List>
+            {seating.rooms.map((r) => <Tabs.Tab key={r.id} value={r.id}>{r.name}</Tabs.Tab>)}
+          </Tabs.List>
+          {seating.rooms.map((r) => (
+            <Tabs.Panel key={r.id} value={r.id} pt="sm">
+              <SeatMap rows={r.rows} look={look} onSeatClick={onSeatClick} axes />
+            </Tabs.Panel>
+          ))}
+        </Tabs>
+      )}
+      {view === 'map' && seating.unassigned.length > 0 && (
         <>
           <Text size="sm" fw={500} mt="sm">Without a seat</Text>
           <Group gap="xs">

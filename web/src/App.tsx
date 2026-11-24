@@ -10,6 +10,7 @@ import CoursePage from './pages/CoursePage'
 import CoursesPage from './pages/CoursesPage'
 import DashboardPage from './pages/DashboardPage'
 import ExamPage from './pages/ExamPage'
+import ExamSetupPage from './pages/ExamSetupPage'
 import HomePage from './pages/HomePage'
 import InvitePage from './pages/InvitePage'
 import LoginPage from './pages/LoginPage'
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/rooms" element={auth(<RoomsPage />)} />
         <Route path="/rooms/:roomId" element={auth(<RoomPage />)} />
         <Route path="/exams/:examId" element={auth(<ExamPage />)} />
+        <Route path="/exams/:examId/setup" element={auth(<ExamSetupPage />)} />
         {/* Old role pages from the first UI. */}
         <Route path="/student" element={<Navigate to="/dashboard" replace />} />
         <Route path="/proctor" element={<Navigate to="/dashboard" replace />} />
