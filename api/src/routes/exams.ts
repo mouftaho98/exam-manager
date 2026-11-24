@@ -262,6 +262,29 @@ examsRouter.post("/exams/:examId/seating/generate", async (req, res) => {
   res.json({ ...result, seed: usedSeed });
 });
 
+/**
+ * Remove everyone's seat, so the exam's rooms can be changed (say a room
+ * became unavailable) and seating generated again. Instructors only.
+ * Refused once check-in has started, unless ?discardCheckins=true, which
+ * also removes the check-ins.
+ */
+examsRouter.delete("/exams/:examId/seating", async (req, res) => {
+  const { exam } = await requireExamRole(currentUser(req).id, req.params.examId, INSTRUCTOR_ONLY);
+  const discard = req.query.discardCheckins === "true";
+  const result = await serializable(async (tx) => {
+    const checkIns = await tx.checkIn.count({ where: { examId: exam.id } });
+    if (checkIns > 0 && !discard) {
+      throw conflict("checkin_started", `${checkIns} student${checkIns === 1 ? " has" : "s have"} checked in; clearing the seating would remove those check-ins too`);
+    }
+    await tx.checkIn.deleteMany({ where: { examId: exam.id } });
+    const removed = await tx.seatAssignment.deleteMany({ where: { examId: exam.id } });
+    await tx.exam.update({ where: { id: exam.id }, data: { seatingGeneratedAt: null } });
+    return { removed: removed.count, checkInsRemoved: checkIns };
+  });
+  publish(exam.id, "seating:cleared", result);
+  res.json(result);
+});
+
 /** Full seating map for staff: every seat, who sits there and whether they checked in. */
 examsRouter.get("/exams/:examId/seating", async (req, res) => {
   const { exam } = await requireExamRole(currentUser(req).id, req.params.examId, STAFF);

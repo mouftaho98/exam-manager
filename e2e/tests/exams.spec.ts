@@ -4,7 +4,7 @@
  * has no special seats.
  */
 import { test } from "@playwright/test";
-import { call, choose, createExam, createRoom, expect, generate, join, openAs, register, seatingOf, seedExam, seedOffering, seedStudents, uid } from "./helpers";
+import { call, choose, createExam, createRoom, expect, generate, join, openAs, register, seatingOf, seedExam, seedOffering, seedStudents, showMap, uid } from "./helpers";
 
 test("instructor creates an exam with a date, duration and two rooms", async ({ page }) => {
   const { prof, offering } = await seedOffering();
@@ -27,17 +27,21 @@ test("instructor creates an exam with a date, duration and two rooms", async ({ 
 
 test("instructor generates seating and sees everyone seated", async ({ page }) => {
   const { prof, exam, students } = await seedExam({ students: 4, seat: false });
-  await openAs(page, prof, `/exams/${exam.id}`);
+  await openAs(page, prof, `/exams/${exam.id}/setup`);
   await page.getByRole("button", { name: "Generate seating" }).click();
   await expect(page.getByText("Seated 4 students.")).toBeVisible();
+  await expect(page.getByText("4 of 4 students seated")).toBeVisible();
+  await page.getByRole("link", { name: /Back to the exam/ }).click();
   await expect(page.getByTestId("attendance-totals")).toHaveText("Checked in 0 / 4 · Missing 4");
-  // Every student appears on the seating map.
+  // Every student appears in the seating list, and on the map.
+  for (const s of students) await expect(page.getByTestId("seating-row").filter({ hasText: s.name })).toHaveCount(1);
+  await showMap(page);
   for (const s of students) await expect(page.getByRole("button", { name: new RegExp(`: ${s.name}`) })).toBeVisible();
 });
 
 test("regenerating asks first and keeps everyone seated", async ({ page }) => {
   const { prof, exam } = await seedExam({ students: 3 });
-  await openAs(page, prof, `/exams/${exam.id}`);
+  await openAs(page, prof, `/exams/${exam.id}/setup`);
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Regenerate seating" }).click();
   await expect(page.getByText("Seated 3 students.")).toBeVisible();
@@ -45,9 +49,12 @@ test("regenerating asks first and keeps everyone seated", async ({ page }) => {
 
 test("students who don't fit are listed, and can be seated by hand later", async ({ page }) => {
   const { prof, exam } = await seedExam({ students: 3, rooms: [[2]], seat: false });
-  await openAs(page, prof, `/exams/${exam.id}`);
+  await openAs(page, prof, `/exams/${exam.id}/setup`);
   await page.getByRole("button", { name: "Generate seating" }).click();
   await expect(page.getByText(/Seated 2 students\. 1 didn't fit/)).toBeVisible();
+  await page.getByRole("link", { name: /Back to the exam/ }).click();
+  await expect(page.getByTestId("seating-row").filter({ hasText: "No seat" })).toHaveCount(1);
+  await showMap(page);
   await expect(page.getByText("Without a seat")).toBeVisible();
 });
 
@@ -56,12 +63,13 @@ test("rooms are added to an exam later, then seating is generated", async ({ pag
   await seedStudents(prof, offering.id, 2);
   const exam = await createExam(prof, offering.id, []);
   const room = await createRoom(prof, [4]);
-  await openAs(page, prof, `/exams/${exam.id}`);
+  await openAs(page, prof, `/exams/${exam.id}/setup`);
   await expect(page.getByRole("button", { name: "Generate seating" })).toBeDisabled();
   await choose(page, "Rooms", new RegExp(room.name));
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Save rooms" }).click();
-  await expect(page.getByText(new RegExp(`120 min · ${room.name}`))).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save rooms" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Generate seating" })).toBeEnabled();
   await page.getByRole("button", { name: "Generate seating" }).click();
   await expect(page.getByText("Seated 2 students.")).toBeVisible();
 });
@@ -88,7 +96,7 @@ test("accessible and left-handed students get matching seats; broken seats are n
 
 test("a room with no accessible or left-handed seats still seats everyone, with a warning", async ({ page }) => {
   const { prof, exam } = await seedExam({ students: 2, rooms: [[3]], needs: [{ needsAccessible: true }, { leftHanded: true }], seat: false });
-  await openAs(page, prof, `/exams/${exam.id}`);
+  await openAs(page, prof, `/exams/${exam.id}/setup`);
   await page.getByRole("button", { name: "Generate seating" }).click();
   await expect(page.getByText("Seated 2 students.")).toBeVisible();
   await expect(page.getByText(/accessible/i).last()).toBeVisible();

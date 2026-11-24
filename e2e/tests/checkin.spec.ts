@@ -3,7 +3,7 @@
  * where they sit, and watch every room fill up live. Staff can move seats.
  */
 import { test, type Page } from "@playwright/test";
-import { choose, expect, instructor, join, openAs, register, seatingOf, seedExam } from "./helpers";
+import { choose, expect, instructor, join, openAs, register, seatingOf, seedExam, showMap } from "./helpers";
 
 /** Open the exam as staff and wait for the live connection. */
 async function openExamDay(page: Page, user: { token: string }, examId: string) {
@@ -25,8 +25,6 @@ test("proctor types the student number from the ID card and sees the seat", asyn
 
   await checkInNumber(page, s.studentNumber);
   await expect(page.getByRole("alert").filter({ hasText: "Checked in" })).toContainText(`${s.name} → seat ${seat.label}`);
-  // The room map shows where to send them.
-  await expect(page.getByRole("button", { name: `${seat.label} — ${s.name}` })).toBeVisible();
   await expect(page.getByTestId("attendance-totals")).toHaveText("Checked in 1 / 3 · Missing 2");
   await expect(page.getByLabel("Student number")).toHaveValue("");
 });
@@ -91,6 +89,7 @@ test("a check-in on one proctor's phone shows up live on another's", async ({ br
   const b = await (await browser.newContext()).newPage();
   await openExamDay(a, proctor, exam.id);
   await openExamDay(b, second, exam.id);
+  await showMap(b);
   await expect(b.getByTestId("attendance-totals")).toHaveText("Checked in 0 / 2 · Missing 2");
   await checkInNumber(a, students[0].studentNumber);
   // No reload on B: the update arrives over Socket.IO.
@@ -109,13 +108,15 @@ test("attendance shows each room's checked in / seated / capacity, and who's mis
   const row = page.getByTestId("attendance-room").filter({ hasText: room.name });
   const seatedHere = [...seats.values()].filter((s) => s.roomId === room.id).length;
   await expect(row).toHaveText(new RegExp(`${room.name}1${seatedHere}2`));
-  await expect(page.getByTestId("missing-student")).toHaveCount(2);
-  await expect(page.getByTestId("missing-student").filter({ hasText: first.name })).toHaveCount(0);
+  // Who's missing is in the seating list: everyone else is "Not here yet".
+  await expect(page.getByTestId("seating-row").filter({ hasText: "Not here yet" })).toHaveCount(2);
+  await expect(page.getByTestId("seating-row").filter({ hasText: first.name })).toContainText("Checked in");
 });
 
 test("a check-in can be undone from the seating map", async ({ page }) => {
   const { proctor, students, exam } = await seedExam({ students: 1 });
   await openExamDay(page, proctor, exam.id);
+  await showMap(page);
   await checkInNumber(page, students[0].studentNumber);
   await expect(page.getByTestId("attendance-totals")).toHaveText("Checked in 1 / 1 · Missing 0");
   await page.getByRole("button", { name: new RegExp(`${students[0].name} \\(checked in\\)`) }).click();
@@ -132,6 +133,7 @@ for (const who of ["proctor", "instructor"] as const) {
     const taken = new Set([...before.values()].map((s) => s.label));
     const empty = ["A1", "A2", "A3"].find((l) => !taken.has(l))!;
     await openExamDay(page, user, ctx.exam.id);
+    await showMap(page);
 
     await page.getByRole("button", { name: new RegExp(`: ${x.name}$`) }).click();
     await expect(page.getByText(`Moving ${x.name}`)).toBeVisible();
@@ -151,6 +153,7 @@ for (const who of ["proctor", "instructor"] as const) {
 test("the student sees they're checked in", async ({ page }) => {
   const { proctor, students, exam } = await seedExam({ students: 1 });
   await openExamDay(page, proctor, exam.id);
+  await showMap(page);
   await checkInNumber(page, students[0].studentNumber);
   await expect(page.getByTestId("attendance-totals")).toHaveText("Checked in 1 / 1 · Missing 0");
   await openAs(page, students[0], `/exams/${exam.id}`);
@@ -161,8 +164,10 @@ test("seating can't be regenerated once check-in has started", async ({ page }) 
   const { prof, students, exam } = await seedExam({ students: 2 });
   await openExamDay(page, prof, exam.id);
   await checkInNumber(page, students[0].studentNumber);
+  await expect(page.getByTestId("attendance-totals")).toHaveText("Checked in 1 / 2 · Missing 1");
+  await page.getByRole("link", { name: "Exam setup" }).click();
   await expect(page.getByRole("button", { name: "Regenerate seating" })).toBeDisabled();
-  await expect(page.getByText("Check-in has started")).toBeVisible();
+  await expect(page.getByText(/Check-in has started/)).toBeVisible();
 });
 
 test("staff of another course can't check students into this exam", async ({ page }) => {
@@ -176,6 +181,7 @@ test("a refresh keeps the proctor's room and the open seating map", async ({ pag
   const { proctor, exam, rooms } = await seedExam({ students: 2, rooms: [[1], [1]] });
   await openExamDay(page, proctor, exam.id);
   await choose(page, "I'm checking students into", rooms[1].name);
+  await showMap(page);
   await page.getByRole("tab", { name: rooms[1].name }).click();
   await page.reload();
   await expect(page.getByRole("textbox", { name: "I'm checking students into" })).toHaveValue(rooms[1].name);

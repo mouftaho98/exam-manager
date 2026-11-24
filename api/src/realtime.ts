@@ -27,12 +27,13 @@ import { STAFF } from "./access.js";
 //   checkin:removed  { examId, studentId, roomId }
 //   seat:moved       { examId, moves: [{ studentId, seatId, roomId }] }
 //   seating:generated { examId, assigned, unassigned }
+//   seating:cleared   { examId, removed, checkInsRemoved }
 
 // The Socket.IO server. Undefined until attachRealtime runs (e.g. in most tests),
 // in which case publish() does nothing.
 let io: Server | undefined;
 
-export type ExamEvent = "checkin:created" | "checkin:removed" | "seat:moved" | "seating:generated";
+export type ExamEvent = "checkin:created" | "checkin:removed" | "seat:moved" | "seating:generated" | "seating:cleared";
 
 /** Name of the Socket.IO room for one exam. */
 export const examChannel = (examId: string) => `exam:${examId}`;
