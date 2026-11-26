@@ -37,6 +37,8 @@ Before running, install `api/` and `web/` (`npm ci` in each, plus `npx prisma ge
 ### Seating needs (`profile.spec.ts`)
 - [x] Needs chosen at sign-up are saved
 - [x] Students change their own needs on the dashboard, and they persist
+- [x] Instructors don't see a "My seating needs" card for themselves
+- [x] An instructor who is also a student still sees it
 
 ### Courses and offerings (`courses.spec.ts`)
 - [x] Create a course (code stored uppercase), then a Fall 2026 offering; it shows on the dashboard
