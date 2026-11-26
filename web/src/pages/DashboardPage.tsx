@@ -1,6 +1,7 @@
 /**
  * Home for signed-in users: upcoming exams (as a student), the offerings
- * they're in with their role, instructor access, and their seating needs.
+ * they're in with their role, instructor access, and seating needs for users
+ * who actually sit exams.
  */
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -16,6 +17,9 @@ export default function DashboardPage() {
   const exams = useLoad(() => api.get<{ exams: MyExam[] }>('/me/exams'))
   const [error, setError] = useState('')
   const user = me.user
+  const isStudent = me.offerings.some((o) => o.role === 'STUDENT')
+  // Instructors and proctors don't sit exams, unless they're also a student elsewhere.
+  const showSeatingNeeds = !!user && (!me.isStaff || isStudent)
 
   const updateMe = async (patch: Partial<User>) => {
     setError('')
@@ -92,7 +96,7 @@ export default function DashboardPage() {
           </Card>
         )}
 
-        {user && (
+        {showSeatingNeeds && (
           <Card withBorder padding="md">
             <Title order={4} mb="xs">My seating needs</Title>
             <Text size="sm" c="dimmed" mb="sm">Used when seats are assigned for your exams. Only you can change these.</Text>

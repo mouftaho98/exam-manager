@@ -9,7 +9,9 @@ export default function PublicFrame({ children }: { children: ReactNode }) {
     <AppShell header={{ height: 60 }} padding="md">
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between">
-          <Title order={3}>RollCall</Title>
+          {/* Mantine's Title inherits its colour; signed-in headers wrap it in an
+              Anchor (blue), so use the same anchor colour for signed-out pages. */}
+          <Title order={3} c="var(--mantine-color-anchor)">RollCall</Title>
           <Button variant="subtle" onClick={() => navigate('/')}>Home</Button>
         </Group>
       </AppShell.Header>

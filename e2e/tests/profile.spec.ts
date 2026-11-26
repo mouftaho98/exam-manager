@@ -1,9 +1,9 @@
 /**
- * Students set their own seating needs (at sign-up or later). Instructors
- * can see them but never set them.
+ * Students set their own seating needs (at sign-up or later). Staff don't get
+ * a "My seating needs" card unless they're also a student somewhere.
  */
 import { test } from "@playwright/test";
-import { PASSWORD, expect, openAs, register, uniqueEmail } from "./helpers";
+import { PASSWORD, expect, instructor, join, openAs, register, seedOffering, uniqueEmail } from "./helpers";
 
 test("seating needs chosen at sign-up are saved", async ({ page }) => {
   await page.goto("/signup");
@@ -29,4 +29,17 @@ test("students change their seating needs on the dashboard and they stick", asyn
   await expect(page.getByLabel("I need an accessible seat")).not.toBeChecked(); // saved
   await page.reload();
   await expect(page.getByLabel("I need an accessible seat")).not.toBeChecked();
+});
+
+test("instructors don't see their own seating needs", async ({ page }) => {
+  await openAs(page, await instructor(), "/dashboard");
+  await expect(page.getByText("My seating needs")).toHaveCount(0);
+});
+
+test("an instructor who also sits a course still sees their seating needs", async ({ page }) => {
+  const { prof, offering } = await seedOffering();
+  const teachingStudent = await instructor();
+  await join(prof, offering.id, teachingStudent, "STUDENT");
+  await openAs(page, teachingStudent, "/dashboard");
+  await expect(page.getByText("My seating needs")).toBeVisible();
 });
